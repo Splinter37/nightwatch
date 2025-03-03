@@ -10,6 +10,7 @@ use React\EventLoop\Loop;
 use Throwable;
 
 use function date;
+use function gethostname;
 use function round;
 use function str_replace;
 
@@ -36,6 +37,8 @@ $authenticationTimeout ??= 10;
 $ingestConnectionTimeout ??= 5;
 /** @var ?float $ingestTimeout */
 $ingestTimeout ??= 10;
+/** @var ?string $server */
+$server ??= (string) gethostname();
 
 /*
  * Internal state...
@@ -70,6 +73,7 @@ $ingestDetails = (new IngestDetailsRepositoryFactory)(
     timeout: $authenticationTimeout,
     preemptivelyRefreshInSeconds: 60,
     minRefreshDurationInSeconds: 60,
+    server: $server,
     packageVersion: $packageVersion,
     onAuthenticationSuccess: static fn (IngestDetails $ingestDetails, float $duration) => $info('Authentication successful ['.round($duration, 3).'s]'),
     onAuthenticationError: static fn (Throwable $e, float $duration) => $info('Authentication failed ['.round($duration, 3).'s]: '.$e->getMessage()),
@@ -83,6 +87,7 @@ $ingest = (new IngestFactory)(
     threshold: 6_000_000,
     concurrentRequestLimit: 2,
     maxBufferDurationInSeconds: 10,
+    server: $server,
     packageVersion: $packageVersion,
     onIngestSuccess: static fn (ResponseInterface $response, float $duration) => $info('Ingest successful ['.round($duration, 3).'s]'),
     onIngestError: static fn (Throwable $e, float $duration) => $info('Ingest failed ['.round($duration, 3).'s]: '.$e->getMessage()),

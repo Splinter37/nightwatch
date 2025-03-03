@@ -25,6 +25,7 @@ class IngestDetailsRepositoryFactory
         float $timeout,
         int $preemptivelyRefreshInSeconds,
         int $minRefreshDurationInSeconds,
+        string $server,
         PackageVersionRepository $packageVersion,
         Closure $onAuthenticationSuccess,
         Closure $onAuthenticationError,
@@ -35,6 +36,7 @@ class IngestDetailsRepositoryFactory
             ->withTimeout($timeout)
             ->withHeader('authorization', "Bearer {$refreshToken}")
             ->withHeader('content-type', 'application/json')
+            ->withHeader('nightwatch-server', $server)
             ->withBase(rtrim($baseUrl, '/').'/api/agent-auth');
 
         return new IngestDetailsRepository(
