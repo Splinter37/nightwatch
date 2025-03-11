@@ -6,6 +6,7 @@ use Illuminate\Events\CallQueuedListener;
 use Illuminate\Queue\Events\JobQueued;
 use Illuminate\Queue\Events\JobQueueing;
 use Laravel\Nightwatch\Clock;
+use Laravel\Nightwatch\Compatibility;
 use Laravel\Nightwatch\Concerns\NormalizesQueue;
 use Laravel\Nightwatch\Records\QueuedJob;
 use Laravel\Nightwatch\State\CommandState;
@@ -82,6 +83,10 @@ final class QueuedJobSensor
 
     private function resolveQueue(JobQueued $event): string
     {
+        if (! Compatibility::$queueNameCapturable) {
+            return '';
+        }
+
         $queue = $event->queue;
 
         if ($queue !== null) {

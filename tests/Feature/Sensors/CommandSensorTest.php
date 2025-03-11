@@ -5,6 +5,7 @@ use Illuminate\Console\Command;
 use Illuminate\Foundation\Testing\WithConsoleEvents;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
+use Laravel\Nightwatch\Compatibility;
 use Symfony\Component\Console\Input\StringInput;
 
 use function Pest\Laravel\travelTo;
@@ -117,10 +118,10 @@ it('modifies status code to value in range of 0-255', function () {
 
 it('only captures the first command that runs', function () {
     $ingest = fakeIngest();
-    Artisan::addCommands([ParentCommand::class]);
     Artisan::command('child', function () {
         return 99;
     });
+    Artisan::registerCommand(app(ParentCommand::class));
 
     $run = function () {
         $status = Artisan::handle($input = new StringInput('parent'));
@@ -199,7 +200,7 @@ it('child commands do not progress the modify execution stage when terminating e
     Artisan::command('child', function () {
         //
     });
-    commandState()->terminatingEventExists = false;
+    Compatibility::$terminatingEventExists = false;
 
     $run = function () {
         $status = Artisan::handle($input = new StringInput('parent'));

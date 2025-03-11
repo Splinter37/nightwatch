@@ -1,9 +1,13 @@
 <?php
 
 use Carbon\CarbonImmutable;
+use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Foundation\Application;
+use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Foundation\Testing\WithConsoleEvents;
+use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Event;
@@ -26,7 +30,7 @@ beforeEach(function () {
 
     setTraceId('0d3ca349-e222-4982-ac23-2343692de258');
     Config::set('queue.default', 'database');
-});
+})->skip(version_compare(Application::VERSION, '11.0.0', '<'), 'Laravel 10 support is pending');
 
 it('ingests processed job attempts', function () {
     $ingest = fakeIngest();
@@ -355,7 +359,7 @@ it('captures multiple job attempts', function () {
 
 final class ProcessedJob implements ShouldQueue
 {
-    use Queueable;
+    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public function handle()
     {
@@ -365,7 +369,7 @@ final class ProcessedJob implements ShouldQueue
 
 final class ReleasedJob implements ShouldQueue
 {
-    use Queueable;
+    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public function handle()
     {
@@ -377,7 +381,7 @@ final class ReleasedJob implements ShouldQueue
 
 final class FailedJob implements ShouldQueue
 {
-    use Queueable;
+    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public function handle()
     {

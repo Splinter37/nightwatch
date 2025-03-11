@@ -2,6 +2,7 @@
 
 use Illuminate\Cache\Events\CacheEvent;
 use Illuminate\Cache\Events\RetrievingKey;
+use Laravel\Nightwatch\Compatibility;
 use Laravel\Nightwatch\Hooks\CacheEventListener;
 use Laravel\Nightwatch\SensorManager;
 
@@ -26,4 +27,4 @@ it('gracefully handles exceptions', function () {
     $listener($event);
 
     expect($sensor->thrown)->toBeTrue();
-});
+})->skip(fn () => ! Compatibility::$cacheFailuresCapturable, 'Requires a more recent framework version');

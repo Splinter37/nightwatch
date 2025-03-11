@@ -27,7 +27,7 @@ beforeEach(function () {
 it('ingests outgoing requests', function () {
     $ingest = fakeIngest();
     Route::post('/users', function () {
-        travelTo(now()->addMilliseconds(2.5));
+        travelTo(now()->addMicroseconds(2500));
 
         Http::withBody(str_repeat('b', 2000))->post('https://laravel.com');
     });
