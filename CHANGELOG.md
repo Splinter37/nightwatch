@@ -1,6 +1,16 @@
 # Release Notes
 
-## [Unreleased](https://github.com/laravel/nightwatch/compare/v1.0.7...1.x)
+## [Unreleased](https://github.com/laravel/nightwatch/compare/v1.1.0...1.x)
+
+## [v1.1.0](https://github.com/laravel/nightwatch/compare/v1.0.7...v1.1.0) - 2025-03-17
+
+### What's Changed
+
+* Send the server name with outgoing requests by [@timacdonald](https://github.com/timacdonald) in https://github.com/laravel/nightwatch/pull/120
+* Add Laravel 10 support (excluding job attempts) by [@timacdonald](https://github.com/timacdonald) in https://github.com/laravel/nightwatch/pull/119
+* Add Laravel 12 support by [@timacdonald](https://github.com/timacdonald) in https://github.com/laravel/nightwatch/pull/124
+
+**Full Changelog**: https://github.com/laravel/nightwatch/compare/v1.0.7...v1.1.0
 
 ## [v1.0.7](https://github.com/laravel/nightwatch/compare/v1.0.6...v1.0.7) - 2025-03-03
 
