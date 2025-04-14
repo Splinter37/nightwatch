@@ -7,6 +7,7 @@ use Symfony\Component\Process\Process;
 use Tests\BrowserFake;
 use Tests\LoopFake;
 use Tests\Request;
+use Tests\TcpServerFake;
 use Tests\Timer;
 
 if (! ($_SERVER['CI'] ?? false)) {
@@ -32,19 +33,46 @@ expect()->extend('toMatchLog', function (string $log) {
 });
 
 expect()->extend('toHaveSent', function (array $requests) {
+    foreach ($requests as $request) {
+        if (($this->value->headers['content-encoding'] ?? null) === 'gzip') {
+            $body = gzdecode($request->body);
+
+            if ($body === false) {
+                throw new RuntimeException('Unable to uncompress request payload.');
+            }
+
+            $request->body = gzdecode($request->body);
+        }
+    }
+
     $this->value = array_map(
-        fn ($request) => new Request($request[0], $request[1], $request[2]),
+        function ($request) {
+            [$url, $headers, $body] = $request;
+
+            if (($this->value->headers['content-encoding'] ?? null) === 'gzip') {
+                $body = gzdecode($body);
+
+                if ($body === false) {
+                    throw new RuntimeException('Unable to uncompress request payload.');
+                }
+            }
+
+            return new Request($url, $headers, $body);
+        },
         $this->value->sentRequests,
     );
 
     return $this->toEqual($requests);
 });
 
+expect()->extend('toHaveSentNothing', fn () => $this->toHaveSent([]));
+
 expect()->extend('toHaveRun', function (array $timers) {
     $this->value = array_map(fn ($timer) => new Timer(
         interval: $timer['interval'],
         runAt: $timer['runAt'],
-        scheduledBy: $timer['scheduledBy']
+        scheduledBy: $timer['scheduledBy'],
+        scheduledAt: $timer['scheduledAt'],
     ), $this->value->timersRun);
 
     return $this->toEqual($timers);
@@ -55,7 +83,8 @@ expect()->extend('toHavePending', function (array $items) {
         LoopFake::class => array_map(fn ($timer) => new Timer(
             interval: $timer['interval'],
             runAt: $timer['runAt'],
-            scheduledBy: $timer['scheduledBy']
+            scheduledBy: $timer['scheduledBy'],
+            scheduledAt: $timer['scheduledAt'],
         ), $this->value->pendingTimers),
         BrowserFake::class => $this->value->pendingResponses,
     };
@@ -63,25 +92,48 @@ expect()->extend('toHavePending', function (array $items) {
     return $this->toEqual($items);
 });
 
+expect()->extend('toHaveCanceled', function (array $timers) {
+    $this->value = match ($this->value::class) {
+        LoopFake::class => array_map(fn ($timer) => new Timer(
+            interval: $timer['interval'],
+            canceledAt: $timer['canceledAt'],
+            scheduledBy: $timer['scheduledBy'],
+            scheduledAt: $timer['scheduledAt'],
+        ), $this->value->canceledTimers),
+    };
+
+    return $this->toEqual($timers);
+});
+
+expect()->extend('toBeProcessing', function (array $responses) {
+    $this->value = $this->value->processingResponses;
+
+    return $this->toEqual($responses);
+});
+
 /**
  * @param  'source'|'phar'  $via
  * @param  (callable(string): bool)  $until
  * @return array{0: string, 1: Throwable|null}
  *
- * @param-out  BrowserFake  $browser
+ * @param-out  BrowserFake  $ingestDetailsBrowser
+ * @param-out  BrowserFake  $ingestBrowser
  * @param-out  LoopFake  $loop
  */
-function run(string $via, ?callable $until = null, float $timeout = 0.5, ?BrowserFake &$browser = null, ?LoopFake &$loop = null): array
+function run(string $via, ?callable $until = null, float $timeout = 0.5, ?BrowserFake &$ingestDetailsBrowser = null, ?BrowserFake &$ingestBrowser = null, ?LoopFake &$loop = null, ?TcpServerFake $server = null): array
 {
     $output = '';
+    $port ??= rand(9000, 9999);
     $payloadFile = __DIR__.'/test-payload';
 
     try {
         $write = file_put_contents($payloadFile, serialize([
-            'listenOn' => '127.0.0.1:'.rand(9000, 9999),
+            'listenOn' => "127.0.0.1:{$port}",
             'viaPhar' => $via === 'phar',
-            'browser' => $browser,
+            'ingestDetailsBrowser' => $ingestDetailsBrowser,
+            'ingestBrowser' => $ingestBrowser,
             'loop' => $loop,
+            'server' => $server,
         ]));
 
         if ($write === false) {
@@ -114,8 +166,9 @@ function run(string $via, ?callable $until = null, float $timeout = 0.5, ?Browse
                 $payload = unserialize($payload);
 
                 if (is_array($payload)) {
-                    /** @var array{browser: BrowserFake, loop: LoopFake}  $payload */
-                    $browser = $payload['browser'];
+                    /** @var array{ingestDetailsBrowser: BrowserFake, ingestBrowser: BrowserFake, loop: LoopFake}  $payload */
+                    $ingestDetailsBrowser = $payload['ingestDetailsBrowser'];
+                    $ingestBrowser = $payload['ingestBrowser'];
                     $loop = $payload['loop'];
                 }
             }

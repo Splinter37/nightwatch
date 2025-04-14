@@ -2,15 +2,19 @@
 
 namespace Laravel\NightwatchAgent;
 
+use Closure;
+use Laravel\NightwatchAgent\Contracts\Browser;
 use Laravel\NightwatchAgent\Factories\BrowserFactory;
-use Laravel\NightwatchAgent\Factories\ServerFactory;
 use Psr\Http\Message\ResponseInterface;
 use React\EventLoop\Loop;
 use React\EventLoop\LoopInterface;
+use React\Socket\ServerInterface;
+use React\Socket\TcpServer;
 use Throwable;
 
 use function date;
 use function gethostname;
+use function in_array;
 use function round;
 use function rtrim;
 use function str_replace;
@@ -19,16 +23,15 @@ require __DIR__.'/../vendor/react/promise/src/functions_include.php';
 require __DIR__.'/../vendor/autoload.php';
 
 /*
- * Testing setup...
+ * Testing...
  */
 
-$loop ??= null;
+/** @var (Closure(float $connectionTimeout, float $timeout, array<string, string> $headers, ?string $baseUrl): Browser)|null $browserFactory */
 $browserFactory ??= null;
-
-/**
- * @var ?BrowserFactory $browserFactory
- * @var ?LoopInterface $loop
- */
+/** @var (Closure(): ServerInterface)|null $serverResolver */
+$serverResolver ??= null;
+/** @var ?LoopInterface $loop */
+$loop ??= null;
 
 /*
  * Input...
@@ -57,7 +60,7 @@ $server ??= (string) gethostname();
  * Internal state...
  */
 
-$debug = (bool) ($_SERVER['NIGHTWATCH_DEBUG'] ?? false);
+$debug = in_array($_SERVER['NIGHTWATCH_DEBUG'] ?? null, ['true', '1'], true);
 $basePath = str_replace(['phar://', '/agent.phar/src'], '', __DIR__);
 
 /*
@@ -90,10 +93,12 @@ $browserFactory ??= new BrowserFactory($packageVersion);
 $ingestDetailsBrowser = $browserFactory(
     connectionTimeout: $authenticationConnectionTimeout,
     timeout: $authenticationTimeout,
-    server: $server,
     headers: [
+        'accept' => 'application/json',
         'authorization' => "Bearer {$refreshToken}",
         'content-type' => 'application/json',
+        ...($debug ? ['nightwatch-debug' => '1'] : []),
+        'nightwatch-server' => $server,
     ],
     baseUrl: rtrim($baseUrl, '/'),
 );
@@ -108,12 +113,13 @@ $ingestDetails = new IngestDetailsRepository(
 $ingestBrowser = $browserFactory(
     connectionTimeout: $ingestConnectionTimeout,
     timeout: $ingestTimeout,
-    server: $server,
     headers: [
+        'accept' => 'application/json',
         'content-encoding' => 'gzip',
-        'content-type' => 'application/octet-stream',
+        'content-type' => 'application/json',
+        ...($debug ? ['nightwatch-debug' => '1'] : []),
+        'nightwatch-server' => $server,
     ],
-    debug: $debug,
 );
 
 $ingest = new Ingest(
@@ -125,10 +131,15 @@ $ingest = new Ingest(
     maxBufferDurationInSeconds: $debug ? 1 : 10,
     onIngestSuccess: static fn (ResponseInterface $response, float $duration) => $info('Ingest successful ['.round($duration, 3).'s]'),
     onIngestError: static fn (Throwable $e, float $duration) => $info('Ingest failed ['.round($duration, 3).'s]: '.$e->getMessage()),
+    onExceededQuota: static function (float $duration) use ($info, $ingestDetails) {
+        $info('Ingest attempted ['.round($duration, 3).'s]: Quota exceeded');
+
+        $ingestDetails->markQuotaExceeded();
+    },
 );
 
-$server = (new ServerFactory)(
-    listenOn: $listenOn,
+$server = new Server(
+    serverResolver: $serverResolver ?? static fn (): ServerInterface => new TcpServer($listenOn),
     onServerStarted: static fn () => $info("Nightwatch agent initiated: Listening on [{$listenOn}]"),
     onServerError: static fn (Throwable $e) => $error("Server error: {$e->getMessage()}"),
     onConnectionError: static fn (Throwable $e) => $error("Connection error: {$e->getMessage()}"),

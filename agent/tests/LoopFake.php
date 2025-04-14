@@ -12,26 +12,34 @@ use function array_shift;
 use function count;
 use function debug_backtrace;
 use function microtime;
+use function str_starts_with;
 use function usort;
 
 class LoopFake implements LoopInterface
 {
     /**
-     * @var list<array{runAt: float, scheduledBy: string, interval: float, callback: ?callable }>
+     * @var list<array{runAt: float, scheduledAt: float, scheduledBy: string, interval: float, callback: ?callable, instance: ?TimerInterface }>
      */
     public array $pendingTimers = [];
 
     /**
-     * @var list<array{interval: float, runAt: float, scheduledBy: string}>
+     * @var list<array{canceledAt: float, scheduledAt: float, scheduledBy: string, interval: float }>
+     */
+    public array $canceledTimers = [];
+
+    /**
+     * @var list<array{interval: float, runAt: float, scheduledAt: float, scheduledBy: string}>
      */
     public array $timersRun = [];
 
     private float $now;
 
+    private float $startedAt;
+
     public function __construct(
         private float $runForSeconds = 0,
     ) {
-        $this->now = microtime(true);
+        $this->startedAt = $this->now = microtime(true);
     }
 
     /**
@@ -74,27 +82,29 @@ class LoopFake implements LoopInterface
      */
     public function addTimer($interval, $callback): TimerInterface
     {
+        $timer = new Timer($interval, $callback, periodic: false);
+
         $frame = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 2)[1];
         $class = $frame['class'] ?? '';
-        $function = $frame['function'];
-        $scheduledBy = "{$class}::{$function}";
+
+        if (str_starts_with($class, 'P\\Tests\\Feature')) {
+            $scheduledBy = $class;
+        } else {
+            $scheduledBy = "{$class}::{$frame['function']}";
+        }
 
         $this->pendingTimers[] = [
             'runAt' => $this->now + $interval,
+            'scheduledAt' => $this->now - $this->startedAt,
             'scheduledBy' => $scheduledBy,
             'interval' => $interval,
             'callback' => $callback,
+            'instance' => $timer,
         ];
 
-        usort($this->pendingTimers, function ($a, $b) {
-            if ($a['runAt'] === $b['runAt']) {
-                return 0;
-            }
+        $this->sortPendingTimers();
 
-            return $a['runAt'] < $b['runAt'] ? -1 : 1;
-        });
-
-        return new Timer($interval, $callback, periodic: false);
+        return $timer;
     }
 
     /**
@@ -108,7 +118,24 @@ class LoopFake implements LoopInterface
 
     public function cancelTimer(TimerInterface $timer): void
     {
-        throw new RuntimeException('Not yet implemented');
+        foreach ($this->pendingTimers as $index => $pendingTimer) {
+            if ($pendingTimer['instance'] !== $timer) {
+                continue;
+            }
+
+            $this->canceledTimers[] = [
+                'canceledAt' => $this->now - $this->startedAt,
+                'scheduledBy' => $pendingTimer['scheduledBy'],
+                'scheduledAt' => $pendingTimer['scheduledAt'],
+                'interval' => $pendingTimer['interval'],
+            ];
+
+            unset($this->pendingTimers[$index]); // @phpstan-ignore assign.propertyType
+
+            $this->sortPendingTimers();
+
+            return;
+        }
     }
 
     /**
@@ -116,7 +143,7 @@ class LoopFake implements LoopInterface
      */
     public function futureTick($listener)
     {
-        throw new RuntimeException('Not yet implemented');
+        throw new RuntimeException(__FUNCTION__);
     }
 
     /**
@@ -125,7 +152,7 @@ class LoopFake implements LoopInterface
      */
     public function addSignal($signal, $listener): void
     {
-        //
+        throw new RuntimeException(__FUNCTION__);
     }
 
     /**
@@ -134,21 +161,22 @@ class LoopFake implements LoopInterface
      */
     public function removeSignal($signal, $listener): void
     {
-        //
+        throw new RuntimeException(__FUNCTION__);
     }
 
     public function run(): void
     {
-        $startedAt = $this->now;
         $stopRunningAt = $this->now + $this->runForSeconds;
 
         while (count($this->pendingTimers)) {
             if ($this->now >= $stopRunningAt) {
                 $this->pendingTimers = array_map(fn ($pendingTimer) => [
                     'interval' => $pendingTimer['interval'],
-                    'runAt' => $pendingTimer['runAt'] - $startedAt,
+                    'runAt' => $pendingTimer['runAt'] - $this->startedAt,
+                    'scheduledAt' => $pendingTimer['scheduledAt'],
                     'scheduledBy' => $pendingTimer['scheduledBy'],
                     'callback' => null,
+                    'instance' => null,
                 ], $this->pendingTimers);
 
                 return;
@@ -157,6 +185,7 @@ class LoopFake implements LoopInterface
             [
                 'runAt' => $runAt,
                 'scheduledBy' => $scheduledBy,
+                'scheduledAt' => $scheduledAt,
                 'interval' => $interval,
                 'callback' => $callback,
             ] = $this->pendingTimers[0];
@@ -167,8 +196,9 @@ class LoopFake implements LoopInterface
 
                 $this->timersRun[] = [
                     'interval' => $interval,
-                    'runAt' => $this->now - $startedAt,
+                    'runAt' => $this->now - $this->startedAt,
                     'scheduledBy' => $scheduledBy,
+                    'scheduledAt' => $scheduledAt,
                 ];
 
                 array_shift($this->pendingTimers);
@@ -182,6 +212,17 @@ class LoopFake implements LoopInterface
 
     public function stop(): void
     {
-        //
+        throw new RuntimeException(__FUNCTION__);
+    }
+
+    private function sortPendingTimers(): void
+    {
+        usort($this->pendingTimers, function ($a, $b) {
+            if ($a['runAt'] === $b['runAt']) {
+                return 0;
+            }
+
+            return $a['runAt'] < $b['runAt'] ? -1 : 1;
+        });
     }
 }

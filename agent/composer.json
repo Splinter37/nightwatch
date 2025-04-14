@@ -28,11 +28,13 @@
     },
     "require-dev": {
         "ext-pcntl": "*",
+        "evenement/evenement": "^3.0",
         "laravel/pint": "1.21.0",
         "pestphp/pest": "^3.7.4",
         "pestphp/pest-plugin-arch": "^3.1",
         "phpstan/phpstan": "^2.1.6",
         "phpunit/phpunit": "^11.5.3",
+        "react/stream": "^1.4",
         "symfony/process": "^7.2",
         "vlucas/phpdotenv": "^5.6"
     },
@@ -45,6 +47,20 @@
         "psr-4": {
             "Tests\\": "tests/"
         }
+    },
+    "scripts": {
+        "ci": [
+            "@composer test",
+            "@composer lint"
+        ],
+        "lint": [
+            "@php vendor/bin/pint --config=pint.ci.json",
+            "@php vendor/bin/pint",
+            "@php vendor/bin/phpstan --memory-limit=-1 --verbose"
+        ],
+        "test": [
+            "@php vendor/bin/pest"
+        ]
     },
     "config": {
         "sort-packages": true,
