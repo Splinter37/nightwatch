@@ -29,7 +29,7 @@ final class StatusCommand extends Command
         try {
             $response = $ingest->ping();
 
-            if ($response !== 'PONG') {
+            if ($response !== '4:PONG') {
                 throw new RuntimeException("Unexpected response from the agent [{$response}]");
             }
 
