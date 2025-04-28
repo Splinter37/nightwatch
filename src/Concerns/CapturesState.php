@@ -4,12 +4,14 @@ namespace Laravel\Nightwatch\Concerns;
 
 use Illuminate\Cache\Events\CacheEvent;
 use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Contracts\Queue\Job;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Http\Request;
 use Illuminate\Mail\Events\MessageSending;
 use Illuminate\Mail\Events\MessageSent;
 use Illuminate\Notifications\Events\NotificationSending;
 use Illuminate\Notifications\Events\NotificationSent;
+use Illuminate\Queue\Events\JobAttempted;
 use Illuminate\Queue\Events\JobQueued;
 use Illuminate\Queue\Events\JobQueueing;
 use Illuminate\Routing\Route;
@@ -29,6 +31,7 @@ use WeakMap;
 use function array_shift;
 use function array_unshift;
 use function debug_backtrace;
+use function memory_reset_peak_usage;
 use function random_int;
 
 trait CapturesState
@@ -49,6 +52,8 @@ trait CapturesState
     public function configureRequestSampling(): void
     {
         $this->shouldSample = (random_int(0, PHP_INT_MAX) / PHP_INT_MAX) <= $this->sampling['requests'];
+
+        Compatibility::addHiddenContext('nightwatch_should_sample', $this->shouldSample);
 
         if (! $this->shouldSample) {
             $this->state->records->flush();
@@ -201,6 +206,18 @@ trait CapturesState
     /**
      * @internal
      */
+    public function jobAttempt(JobAttempted $event): void
+    {
+        if (! $this->shouldSample) {
+            return;
+        }
+
+        $this->sensor->jobAttempt($event);
+    }
+
+    /**
+     * @internal
+     */
     public function captureRequestPreview(Request $request): void
     {
         if (! $this->shouldSample) {
@@ -243,6 +260,37 @@ trait CapturesState
         $route->action['middleware'] = $middleware;
 
         $this->routesWithMiddlewareRegistered[$route] = true;
+    }
+
+    /**
+     * @internal
+     */
+    public function configureForJobs(): void
+    {
+        $this->state->source = 'job';
+    }
+
+    /**
+     * @internal
+     */
+    public function resetStateForNextJob(): void
+    {
+        $this->state->reset();
+        memory_reset_peak_usage();
+    }
+
+    /**
+     * @internal
+     */
+    public function prepareForJob(Job $job): void
+    {
+        $this->shouldSample = (bool) Compatibility::getHiddenContext('nightwatch_should_sample', true);
+
+        if ($this->shouldSample) {
+            $this->state->timestamp = $this->clock->microtime();
+            $this->state->setId((string) Str::uuid());
+            $this->state->executionPreview = Str::tinyText($job->resolveName());
+        }
     }
 
     /**
