@@ -1,6 +1,22 @@
 # Release Notes
 
-## [Unreleased](https://github.com/laravel/nightwatch/compare/v1.3.0...1.x)
+## [Unreleased](https://github.com/laravel/nightwatch/compare/v1.4.0...1.x)
+
+## [v1.4.0](https://github.com/laravel/nightwatch/compare/v1.3.0...v1.4.0) - 2025-04-28
+
+### What's Changed
+
+* Job sampling by [@timacdonald](https://github.com/timacdonald) in https://github.com/laravel/nightwatch/pull/147
+* Command sampling by [@timacdonald](https://github.com/timacdonald) in https://github.com/laravel/nightwatch/pull/148
+* Encapsulate capturing of scheduled tasks by [@timacdonald](https://github.com/timacdonald) in https://github.com/laravel/nightwatch/pull/150
+* Improve local ci check performance by [@timacdonald](https://github.com/timacdonald) in https://github.com/laravel/nightwatch/pull/151
+* Fix `facades` build permission by [@crynobone](https://github.com/crynobone) in https://github.com/laravel/nightwatch/pull/149
+
+### New Contributors
+
+* [@crynobone](https://github.com/crynobone) made their first contribution in https://github.com/laravel/nightwatch/pull/149
+
+**Full Changelog**: https://github.com/laravel/nightwatch/compare/v1.3.0...v1.4.0
 
 ## [v1.3.0](https://github.com/laravel/nightwatch/compare/v1.2.1...v1.3.0) - 2025-04-24
 
