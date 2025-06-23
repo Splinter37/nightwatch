@@ -10,6 +10,9 @@ use function call_user_func;
 /**
  * @method static void user(callable $callback)
  * @method static callable guzzleMiddleware()
+ * @method static void sample(float $rate = 1)
+ * @method static void dontSample()
+ * @method static bool sampling()
  * @method static void report(\Throwable $e, bool|null $handled = null)
  *
  * @see \Laravel\Nightwatch\Core
