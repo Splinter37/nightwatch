@@ -8,6 +8,7 @@ use Illuminate\Foundation\Events\Terminating;
 use Illuminate\Foundation\Http\Kernel;
 use Laravel\Nightwatch\Core;
 use Laravel\Nightwatch\Facades\Nightwatch;
+use Laravel\Nightwatch\Http\Middleware\Sample;
 use Laravel\Nightwatch\State\RequestState;
 use Throwable;
 
@@ -29,14 +30,6 @@ final class HttpKernelResolvedHandler
     {
         if (! $kernel instanceof Kernel) {
             return;
-        }
-
-        try {
-            $this->nightwatch->configureSampling('requests');
-        } catch (Throwable $e) {
-            $this->nightwatch->shouldSample = false;
-
-            Nightwatch::unrecoverableExceptionOccurred($e);
         }
 
         try {
@@ -63,6 +56,15 @@ final class HttpKernelResolvedHandler
             $kernel->prependMiddleware(GlobalMiddleware::class);
         } catch (Throwable $e) {
             $this->nightwatch->report($e, handled: true);
+        }
+
+        try {
+            /**
+             * TODO Check this isn't a memory leak in Octane.
+             */
+            $kernel->prependToMiddlewarePriority(Sample::class);
+        } catch (Throwable $e) {
+            $this->nightwatch->report($e);
         }
     }
 }

@@ -49,15 +49,7 @@ use function random_int;
  */
 trait CapturesState
 {
-    /**
-     * @internal
-     */
-    public bool $shouldSample = true;
-
-    /**
-     * @internal
-     */
-    public bool $shouldSampleOnException = true;
+    private bool $sampling = true;
 
     private bool $waitingForJob = false;
 
@@ -67,25 +59,53 @@ trait CapturesState
     private WeakMap $routesWithMiddlewareRegistered;
 
     /**
-     * @internal
-     *
-     * @param  'requests'|'commands'  $by
+     * @api
      */
-    public function configureSampling(string $by): void
+    public function sample(float $rate = 1.0): void
     {
-        $sampleFloat = random_int(0, PHP_INT_MAX) / PHP_INT_MAX;
-
-        $this->ingest->shouldDigest(
-            $this->shouldSample = $sampleFloat <= $this->config['sampling'][$by]
-        );
-
-        $this->shouldSampleOnException = $sampleFloat <= $this->config['sampling']['exceptions'];
-
-        Compatibility::addHiddenContext('nightwatch_should_sample', $this->shouldSample);
-
-        if (! $this->potentiallySampling()) {
-            $this->flush();
+        if ($rate < 0 || $rate > 1) {
+            $rate = 0.0;
         }
+
+        $sample = (random_int(0, PHP_INT_MAX) / PHP_INT_MAX) <= $rate;
+
+        $this->sampling = $sample;
+
+        $this->ingest->shouldDigest($sample);
+
+        Compatibility::addHiddenContext('nightwatch_should_sample', $sample);
+    }
+
+    /**
+     * @api
+     */
+    public function dontSample(): void
+    {
+        $this->sample(rate: 0);
+    }
+
+    /**
+     * @api
+     */
+    public function sampling(): bool
+    {
+        return $this->sampling;
+    }
+
+    /**
+     * @internal
+     */
+    public function configureGlobalRequestSampling(): void
+    {
+        $this->sample($this->config['sampling']['requests']);
+    }
+
+    /**
+     * @internal
+     */
+    public function configureGlobalCommandSampling(): void
+    {
+        $this->sample($this->config['sampling']['commands']);
     }
 
     /**
@@ -97,14 +117,8 @@ trait CapturesState
             return;
         }
 
-        if ($this->shouldSampleOnException) {
-            $this->ingest->shouldDigest(
-                $this->shouldSample = true
-            );
-        }
-
-        if (! $this->shouldSample) {
-            return;
+        if (! $this->sampling) {
+            $this->sample($this->config['sampling']['exceptions']);
         }
 
         try {
@@ -135,10 +149,6 @@ trait CapturesState
      */
     public function query(QueryExecuted $event): void
     {
-        if (! $this->potentiallySampling()) {
-            return;
-        }
-
         if ($this->config['filtering']['ignore_queries']) {
             return;
         }
@@ -154,10 +164,6 @@ trait CapturesState
      */
     public function queuedJob(JobQueueing|JobQueued $event): void
     {
-        if (! $this->potentiallySampling()) {
-            return;
-        }
-
         $this->sensor->queuedJob($event);
     }
 
@@ -166,10 +172,6 @@ trait CapturesState
      */
     public function notification(NotificationSending|NotificationSent $event): void
     {
-        if (! $this->potentiallySampling()) {
-            return;
-        }
-
         if ($this->config['filtering']['ignore_notifications']) {
             return;
         }
@@ -182,10 +184,6 @@ trait CapturesState
      */
     public function mail(MessageSending|MessageSent $event): void
     {
-        if (! $this->potentiallySampling()) {
-            return;
-        }
-
         if ($this->config['filtering']['ignore_mail']) {
             return;
         }
@@ -198,10 +196,6 @@ trait CapturesState
      */
     public function cacheEvent(CacheEvent $event): void
     {
-        if (! $this->potentiallySampling()) {
-            return;
-        }
-
         if ($this->config['filtering']['ignore_cache_events']) {
             return;
         }
@@ -214,10 +208,6 @@ trait CapturesState
      */
     public function stage(ExecutionStage $stage): void
     {
-        if (! $this->potentiallySampling()) {
-            return;
-        }
-
         if ($this->executionStageIs($stage)) {
             throw new RuntimeException("Cannot transition to the same stage [{$stage->value}].");
         }
@@ -238,10 +228,6 @@ trait CapturesState
      */
     public function remember(Authenticatable $user): void
     {
-        if (! $this->potentiallySampling()) {
-            return;
-        }
-
         $this->executionState->user->remember($user);
     }
 
@@ -250,10 +236,6 @@ trait CapturesState
      */
     public function captureUser(): void
     {
-        if (! $this->shouldSample) {
-            return;
-        }
-
         $this->sensor->user();
     }
 
@@ -262,10 +244,6 @@ trait CapturesState
      */
     public function request(Request $request, Response $response): void
     {
-        if (! $this->shouldSample) {
-            return;
-        }
-
         $this->sensor->request($request, $response);
     }
 
@@ -274,10 +252,6 @@ trait CapturesState
      */
     public function jobAttempt(JobProcessed|JobReleasedAfterException|JobFailed $event): void
     {
-        if (! $this->potentiallySampling()) {
-            return;
-        }
-
         $this->sensor->jobAttempt($event);
     }
 
@@ -286,10 +260,6 @@ trait CapturesState
      */
     public function captureRequestPreview(Request $request): void
     {
-        if (! $this->potentiallySampling()) {
-            return;
-        }
-
         $this->executionState->executionPreview = Str::tinyText(
             $request->getMethod().' '.$request->getBaseUrl().$request->getPathInfo()
         );
@@ -300,10 +270,6 @@ trait CapturesState
      */
     public function attachMiddlewareToRoute(Route $route): void
     {
-        if (! $this->potentiallySampling()) {
-            return;
-        }
-
         if ($this->routesWithMiddlewareRegistered[$route] ?? false) {
             return;
         }
@@ -359,15 +325,9 @@ trait CapturesState
      */
     public function prepareForJob(Job $job): void
     {
-        $this->ingest->shouldDigest(
-            $this->shouldSample = (bool) Compatibility::getHiddenContext('nightwatch_should_sample', true)
+        $this->sample(
+            Compatibility::getHiddenContext('nightwatch_should_sample', true) ? 1.0 : 0.0
         );
-
-        $this->shouldSampleOnException = (random_int(0, PHP_INT_MAX) / PHP_INT_MAX) <= $this->config['sampling']['exceptions'];
-
-        if (! $this->potentiallySampling()) {
-            return;
-        }
 
         $this->waitingForJob = false;
         $this->executionState->timestamp = $this->clock->microtime();
@@ -390,10 +350,6 @@ trait CapturesState
     public function prepareForCommand(string $name): void
     {
         /** @var Core<CommandState> $this */
-        if (! $this->potentiallySampling()) {
-            return;
-        }
-
         $this->executionState->name = $name;
         $this->executionState->executionPreview = Str::tinyText($name);
     }
@@ -412,10 +368,6 @@ trait CapturesState
      */
     public function command(InputInterface $input, int $status): void
     {
-        if (! $this->shouldSample) {
-            return;
-        }
-
         $this->sensor->command($input, $status);
     }
 
@@ -458,21 +410,9 @@ trait CapturesState
     /**
      * @internal
      */
-    public function potentiallySampling(): bool
-    {
-        return $this->shouldSample || $this->shouldSampleOnException;
-    }
-
-    /**
-     * @internal
-     */
     public function shouldCaptureLogs(): bool
     {
-        if (! $this->enabled()) {
-            return false;
-        }
-
-        return $this->potentiallySampling();
+        return $this->enabled();
     }
 
     /**

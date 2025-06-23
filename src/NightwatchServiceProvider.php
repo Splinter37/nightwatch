@@ -62,6 +62,7 @@ use Laravel\Nightwatch\Hooks\ResponsePreparedListener;
 use Laravel\Nightwatch\Hooks\RouteMatchedListener;
 use Laravel\Nightwatch\Hooks\RouteMiddleware;
 use Laravel\Nightwatch\Hooks\TerminatingListener;
+use Laravel\Nightwatch\Http\Middleware\Sample;
 use Laravel\Nightwatch\State\CommandState;
 use Laravel\Nightwatch\State\RequestState;
 use Throwable;
@@ -194,6 +195,8 @@ final class NightwatchServiceProvider extends ServiceProvider
         $this->app->singleton(RouteMiddleware::class, fn () => new RouteMiddleware($this->core)); // @phpstan-ignore argument.type
 
         $this->app->scoped(GlobalMiddleware::class, fn () => new GlobalMiddleware($this->core)); // @phpstan-ignore argument.type
+
+        $this->app->singleton(Sample::class, fn () => new Sample($this->core)); // @phpstan-ignore argument.type
     }
 
     private function registerAgentCommand(): void
@@ -235,9 +238,9 @@ final class NightwatchServiceProvider extends ServiceProvider
             config: [
                 'enabled' => $this->nightwatchConfig['enabled'] ?? true,
                 'sampling' => [
-                    'requests' => $this->configuredSampleRate('requests'),
-                    'commands' => $this->configuredSampleRate('commands'),
-                    'exceptions' => $this->configuredSampleRate('exceptions'),
+                    'requests' => $this->nightwatchConfig['sampling']['requests'] ?? 1.0,
+                    'commands' => $this->nightwatchConfig['sampling']['commands'] ?? 1.0,
+                    'exceptions' => $this->nightwatchConfig['sampling']['exceptions'] ?? 1.0,
                 ],
                 'filtering' => [
                     'ignore_cache_events' => (bool) ($this->nightwatchConfig['filtering']['ignore_cache_events'] ?? false),
@@ -248,20 +251,6 @@ final class NightwatchServiceProvider extends ServiceProvider
                 ],
             ],
         ));
-    }
-
-    /**
-     * @param  'requests'|'commands'|'exceptions'  $key
-     */
-    private function configuredSampleRate($key): float
-    {
-        $value = (float) ($this->nightwatchConfig['sampling'][$key] ?? 1.0);
-
-        if ($value < 0 || $value > 1) {
-            return 0.0;
-        }
-
-        return $value;
     }
 
     private function handleAndClearRegisterException(): void
