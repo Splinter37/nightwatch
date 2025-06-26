@@ -51,6 +51,8 @@ trait CapturesState
 {
     private bool $sampling = true;
 
+    private bool $paused = false;
+
     private bool $waitingForJob = false;
 
     /**
@@ -111,6 +113,52 @@ trait CapturesState
     /**
      * @api
      */
+    public function ignore(callable $callback): mixed
+    {
+        $cachedPaused = $this->paused;
+
+        try {
+            $this->paused = true;
+            Compatibility::addHiddenContext('nightwatch_should_sample', false);
+
+            return $callback();
+        } finally {
+            $this->paused = $cachedPaused;
+            Compatibility::addHiddenContext('nightwatch_should_sample', ! $this->paused);
+        }
+    }
+
+    /**
+     * @api
+     */
+    public function resume(): void
+    {
+        $this->paused = false;
+
+        Compatibility::addHiddenContext('nightwatch_should_sample', true);
+    }
+
+    /**
+     * @api
+     */
+    public function pause(): void
+    {
+        $this->paused = true;
+
+        Compatibility::addHiddenContext('nightwatch_should_sample', false);
+    }
+
+    /**
+     * @api
+     */
+    public function paused(): bool
+    {
+        return $this->paused;
+    }
+
+    /**
+     * @api
+     */
     public function report(Throwable $e, ?bool $handled = null): void
     {
         if (! $this->enabled()) {
@@ -122,7 +170,7 @@ trait CapturesState
         }
 
         try {
-            $this->sensor->exception($e, $handled);
+            $this->ingest->write($this->sensor->exception($e, $handled));
         } catch (Throwable $e) {
             Nightwatch::unrecoverableExceptionOccurred($e);
         }
@@ -133,7 +181,7 @@ trait CapturesState
      */
     public function log(LogRecord $log): void
     {
-        $this->sensor->log($log);
+        $this->ingest->write($this->sensor->log($log));
     }
 
     /**
@@ -141,7 +189,13 @@ trait CapturesState
      */
     public function outgoingRequest(float $startMicrotime, float $endMicrotime, RequestInterface $request, ResponseInterface $response): void
     {
-        $this->sensor->outgoingRequest($startMicrotime, $endMicrotime, $request, $response);
+        [$record, $resolver] = $this->sensor->outgoingRequest($startMicrotime, $endMicrotime, $request, $response);
+
+        if ($this->rejectOutgoingRequestCallback && $this->ignore(fn () => ($this->rejectOutgoingRequestCallback)($record))) {
+            return;
+        }
+
+        $this->ingest->write($resolver());
     }
 
     /**
@@ -149,14 +203,20 @@ trait CapturesState
      */
     public function query(QueryExecuted $event): void
     {
-        if ($this->config['filtering']['ignore_queries']) {
+        if ($this->config['filtering']['ignore_queries'] || $this->paused) {
             return;
         }
 
         $trace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, limit: 21);
         array_shift($trace);
 
-        $this->sensor->query($event, $trace);
+        [$record, $resolver] = $this->sensor->query($event, $trace);
+
+        if ($this->rejectQueryCallback && $this->ignore(fn () => ($this->rejectQueryCallback)($record))) {
+            return;
+        }
+
+        $this->ingest->write($resolver());
     }
 
     /**
@@ -164,7 +224,23 @@ trait CapturesState
      */
     public function queuedJob(JobQueueing|JobQueued $event): void
     {
-        $this->sensor->queuedJob($event);
+        if ($this->paused) {
+            return;
+        }
+
+        $queuedJob = $this->sensor->queuedJob($event);
+
+        if ($queuedJob === null) {
+            return;
+        }
+
+        [$record, $resolver] = $queuedJob;
+
+        if ($this->rejectQueuedJobCallback && $this->ignore(fn () => ($this->rejectQueuedJobCallback)($record))) {
+            return;
+        }
+
+        $this->ingest->write($resolver());
     }
 
     /**
@@ -172,11 +248,23 @@ trait CapturesState
      */
     public function notification(NotificationSending|NotificationSent $event): void
     {
-        if ($this->config['filtering']['ignore_notifications']) {
+        if ($this->config['filtering']['ignore_notifications'] || $this->paused) {
             return;
         }
 
-        $this->sensor->notification($event);
+        $notification = $this->sensor->notification($event);
+
+        if ($notification === null) {
+            return;
+        }
+
+        [$record, $resolver] = $notification;
+
+        if ($this->rejectNotificationCallback && $this->ignore(fn () => ($this->rejectNotificationCallback)($record))) {
+            return;
+        }
+
+        $this->ingest->write($resolver());
     }
 
     /**
@@ -184,11 +272,23 @@ trait CapturesState
      */
     public function mail(MessageSending|MessageSent $event): void
     {
-        if ($this->config['filtering']['ignore_mail']) {
+        if ($this->config['filtering']['ignore_mail'] || $this->paused) {
             return;
         }
 
-        $this->sensor->mail($event);
+        $mail = $this->sensor->mail($event);
+
+        if ($mail === null) {
+            return;
+        }
+
+        [$record, $resolver] = $mail;
+
+        if ($this->rejectMailCallback && $this->ignore(fn () => ($this->rejectMailCallback)($record))) {
+            return;
+        }
+
+        $this->ingest->write($resolver());
     }
 
     /**
@@ -196,11 +296,23 @@ trait CapturesState
      */
     public function cacheEvent(CacheEvent $event): void
     {
-        if ($this->config['filtering']['ignore_cache_events']) {
+        if ($this->config['filtering']['ignore_cache_events'] || $this->paused) {
             return;
         }
 
-        $this->sensor->cacheEvent($event);
+        $cacheEvent = $this->sensor->cacheEvent($event);
+
+        if ($cacheEvent === null) {
+            return;
+        }
+
+        [$record, $resolver] = $cacheEvent;
+
+        if ($this->rejectCacheEventCallback && $this->ignore(fn () => ($this->rejectCacheEventCallback)($record))) {
+            return;
+        }
+
+        $this->ingest->write($resolver());
     }
 
     /**
@@ -236,7 +348,11 @@ trait CapturesState
      */
     public function captureUser(): void
     {
-        $this->sensor->user();
+        $user = $this->sensor->user();
+
+        if ($user !== null) {
+            $this->ingest->write($user);
+        }
     }
 
     /**
@@ -244,7 +360,7 @@ trait CapturesState
      */
     public function request(Request $request, Response $response): void
     {
-        $this->sensor->request($request, $response);
+        $this->ingest->write($this->sensor->request($request, $response));
     }
 
     /**
@@ -252,7 +368,11 @@ trait CapturesState
      */
     public function jobAttempt(JobProcessed|JobReleasedAfterException|JobFailed $event): void
     {
-        $this->sensor->jobAttempt($event);
+        $jobAttempt = $jobAttempt = $this->sensor->jobAttempt($event);
+
+        if ($jobAttempt !== null) {
+            $this->ingest->write($jobAttempt);
+        }
     }
 
     /**
@@ -317,6 +437,7 @@ trait CapturesState
     public function prepareForNextJob(): void
     {
         $this->flush();
+        $this->resume();
         memory_reset_peak_usage();
     }
 
@@ -368,7 +489,7 @@ trait CapturesState
      */
     public function command(InputInterface $input, int $status): void
     {
-        $this->sensor->command($input, $status);
+        $this->ingest->write($this->sensor->command($input, $status));
     }
 
     /**
@@ -390,6 +511,7 @@ trait CapturesState
          * we need to clear previous task data to avoid metric pollution.
          */
         $this->flush();
+        $this->resume();
         memory_reset_peak_usage();
 
         $trace = (string) Str::uuid();
@@ -404,7 +526,11 @@ trait CapturesState
      */
     public function scheduledTask(ScheduledTaskFinished|ScheduledTaskSkipped|ScheduledTaskFailed $event): void
     {
-        $this->sensor->scheduledTask($event);
+        $scheduledTask = $this->sensor->scheduledTask($event);
+
+        if ($scheduledTask !== null) {
+            $this->ingest->write($scheduledTask);
+        }
     }
 
     /**
