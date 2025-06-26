@@ -28,6 +28,7 @@ use Laravel\Nightwatch\Facades\Nightwatch;
 use Laravel\Nightwatch\Hooks\GlobalMiddleware;
 use Laravel\Nightwatch\Hooks\RouteMiddleware;
 use Laravel\Nightwatch\State\CommandState;
+use Laravel\Nightwatch\State\RequestState;
 use Laravel\Nightwatch\Types\Str;
 use Monolog\LogRecord;
 use Psr\Http\Message\RequestInterface;
@@ -531,6 +532,23 @@ trait CapturesState
         if ($scheduledTask !== null) {
             $this->ingest->write($scheduledTask);
         }
+    }
+
+    public function prepareForNextRequest(): void
+    {
+        /** @var Core<RequestState> $this */
+        $this->flush();
+        $this->resume();
+        memory_reset_peak_usage();
+
+        $trace = (string) Str::uuid();
+        $timestamp = $this->clock->microtime();
+
+        $this->executionState->timestamp = $timestamp;
+        $this->executionState->trace = $trace;
+        $this->executionState->setId($trace);
+        $this->executionState->currentExecutionStageStartedAtMicrotime = $timestamp;
+        $this->executionState->stage = ExecutionStage::BeforeMiddleware;
     }
 
     /**

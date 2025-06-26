@@ -48,8 +48,6 @@ use Symfony\Component\HttpFoundation\Response;
 use Throwable;
 
 /**
- * TODO refresh application instance.
- *
  * @internal
  */
 final class SensorManager
