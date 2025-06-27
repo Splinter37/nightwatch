@@ -468,7 +468,7 @@ final class NightwatchServiceProvider extends ServiceProvider
             );
 
             /** @var UserProvider */
-            $userProvider = $this->app->make(UserProvider::class,);
+            $userProvider = $this->app->make(UserProvider::class);
 
             return new RequestState(
                 timestamp: $this->timestamp,
