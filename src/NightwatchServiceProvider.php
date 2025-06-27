@@ -469,7 +469,7 @@ final class NightwatchServiceProvider extends ServiceProvider
                 currentExecutionStageStartedAtMicrotime: $this->timestamp,
                 deploy: $this->nightwatchConfig['deployment'] ?? '',
                 server: $this->nightwatchConfig['server'] ?? '',
-                user: new UserProvider($auth, fn () => $this->core->userDetailsResolver),
+                user: $this->app->singleton(UserProvider::class, fn () => new UserProvider($auth, fn () => $this->core->userDetailsResolver)),
             );
         } else {
             return new CommandState(
