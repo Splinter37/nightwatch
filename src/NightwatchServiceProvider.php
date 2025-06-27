@@ -461,6 +461,10 @@ final class NightwatchServiceProvider extends ServiceProvider
         if ($this->isRequest) {
             /** @var AuthManager */
             $auth = $this->app->make(AuthManager::class);
+            $userProvider = $this->app->singleton(
+                UserProvider::class,
+                fn () => new UserProvider($auth, fn () => $this->core->userDetailsResolver)
+            );
 
             return new RequestState(
                 timestamp: $this->timestamp,
@@ -469,7 +473,7 @@ final class NightwatchServiceProvider extends ServiceProvider
                 currentExecutionStageStartedAtMicrotime: $this->timestamp,
                 deploy: $this->nightwatchConfig['deployment'] ?? '',
                 server: $this->nightwatchConfig['server'] ?? '',
-                user: $this->app->singleton(UserProvider::class, fn () => new UserProvider($auth, fn () => $this->core->userDetailsResolver)),
+                user: $userProvider,
             );
         } else {
             return new CommandState(
