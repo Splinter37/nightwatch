@@ -8,6 +8,7 @@ use Closure;
 use DateTimeInterface;
 use Exception;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Queue\Console\WorkCommand;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Env;
 use Illuminate\Support\Facades\Http;
@@ -28,7 +29,7 @@ use function array_intersect_key;
 use function collect;
 use function env;
 use function fopen;
-use function Illuminate\Filesystem\join_paths;
+use function method_exists;
 use function now;
 use function realpath;
 use function sprintf;
@@ -62,6 +63,10 @@ abstract class TestCase extends OrchestraTestCase
     {
         Str::createUuidsNormally();
 
+        if (method_exists(WorkCommand::class, 'flushState')) {
+            WorkCommand::flushState();
+        }
+
         unset($this->core);
 
         parent::tearDown();
@@ -83,7 +88,7 @@ abstract class TestCase extends OrchestraTestCase
 
     protected function fixturePath(string $path): string
     {
-        return join_paths(__DIR__, 'fixtures', $path);
+        return __DIR__.'/fixtures'.Str::start($path, '/');
     }
 
     protected function forceRequestExecutionState(): void
@@ -214,5 +219,12 @@ abstract class TestCase extends OrchestraTestCase
         $actual = array_intersect_key($actual, $keysToBeConsidered);
 
         self::assertSame($expected, $actual, $message);
+    }
+
+    protected function markTestSkippedWhen($condition, string $message): void
+    {
+        if ($condition) {
+            $this->markTestSkipped($message);
+        }
     }
 }
