@@ -33,7 +33,6 @@ use Laravel\Nightwatch\Types\Str;
 use Monolog\LogRecord;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
-use RuntimeException;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
@@ -196,6 +195,10 @@ trait CapturesState
             return;
         }
 
+        if ($this->redactOutgoingRequestCallback) {
+            $this->ignore(fn () => ($this->redactOutgoingRequestCallback)($record));
+        }
+
         $this->ingest->write($resolver());
     }
 
@@ -215,6 +218,10 @@ trait CapturesState
 
         if ($this->rejectQueryCallback && $this->ignore(fn () => ($this->rejectQueryCallback)($record))) {
             return;
+        }
+
+        if ($this->redactQueryCallback) {
+            $this->ignore(fn () => ($this->redactQueryCallback)($record));
         }
 
         $this->ingest->write($resolver());
@@ -289,6 +296,10 @@ trait CapturesState
             return;
         }
 
+        if ($this->redactMailCallback) {
+            $this->ignore(fn () => ($this->redactMailCallback)($record));
+        }
+
         $this->ingest->write($resolver());
     }
 
@@ -313,6 +324,10 @@ trait CapturesState
             return;
         }
 
+        if ($this->redactCacheEventCallback) {
+            $this->ignore(fn () => ($this->redactCacheEventCallback)($record));
+        }
+
         $this->ingest->write($resolver());
     }
 
@@ -322,7 +337,7 @@ trait CapturesState
     public function stage(ExecutionStage $stage): void
     {
         if ($this->executionStageIs($stage)) {
-            throw new RuntimeException("Cannot transition to the same stage [{$stage->value}].");
+            return;
         }
 
         $this->sensor->stage($stage);
@@ -361,7 +376,23 @@ trait CapturesState
      */
     public function request(Request $request, Response $response): void
     {
-        $this->ingest->write($this->sensor->request($request, $response));
+        try {
+            $skip = in_array($request->path(), config('nightwatch.exclude.requests') ?? [], true);
+
+            if($skip) {
+                return;
+            }
+        } catch (Throwable $e) {
+            //
+        }
+
+        [$record, $resolver] = $this->sensor->request($request, $response);
+
+        if ($this->redactRequestCallback) {
+            $this->ignore(fn () => ($this->redactRequestCallback)($record));
+        }
+
+        $this->ingest->write($resolver());
     }
 
     /**
@@ -369,6 +400,19 @@ trait CapturesState
      */
     public function jobAttempt(JobProcessed|JobReleasedAfterException|JobFailed $event): void
     {
+        try {
+            $jobData = json_decode($event->job->getRawBody(), true, 512, JSON_THROW_ON_ERROR);
+
+            $skip = isset($jobData['displayName'])
+                && in_array($jobData['displayName'], config('nightwatch.exclude.jobs') ?? [], true);
+
+            if($skip) {
+                return;
+            }
+        } catch (Throwable $e) {
+            //
+        }
+
         $jobAttempt = $jobAttempt = $this->sensor->jobAttempt($event);
 
         if ($jobAttempt !== null) {
@@ -490,7 +534,23 @@ trait CapturesState
      */
     public function command(InputInterface $input, int $status): void
     {
-        $this->ingest->write($this->sensor->command($input, $status));
+        try {
+            $skip = in_array($this->executionState->name, config('nightwatch.exclude.commands') ?? [], true);
+
+            if($skip) {
+                return;
+            }
+        } catch (Throwable $e) {
+            //
+        }
+
+        [$record, $resolver] = $this->sensor->command($input, $status);
+
+        if ($this->redactCommandCallback) {
+            $this->ignore(fn () => ($this->redactCommandCallback)($record));
+        }
+
+        $this->ingest->write($resolver());
     }
 
     /**
@@ -527,6 +587,18 @@ trait CapturesState
      */
     public function scheduledTask(ScheduledTaskFinished|ScheduledTaskSkipped|ScheduledTaskFailed $event): void
     {
+        try {
+            $skip = collect(config('nightwatch.exclude.scheduled_tasks', []))
+                    ->filter(fn (string $item): bool => str_contains($item, $this->executionState->name))
+                    ->count() > 0;
+
+            if($skip) {
+                return;
+            }
+        } catch (Throwable $e) {
+            //
+        }
+
         $scheduledTask = $this->sensor->scheduledTask($event);
 
         if ($scheduledTask !== null) {
