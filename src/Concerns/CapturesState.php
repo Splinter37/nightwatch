@@ -433,6 +433,19 @@ trait CapturesState
     /**
      * @internal
      */
+    public function captureRequestRouteAction(string $routeAction): void
+    {
+        /** @var Core<RequestState> $this */
+        if ($this->executionState->routeAction === null) {
+            $this->executionState->routeAction = $routeAction;
+        } else {
+            $this->executionState->routeAction .= ', '.$routeAction;
+        }
+    }
+
+    /**
+     * @internal
+     */
     public function attachMiddlewareToRoute(Route $route): void
     {
         if ($this->routesWithMiddlewareRegistered[$route] ?? false) {
@@ -534,6 +547,7 @@ trait CapturesState
      */
     public function command(InputInterface $input, int $status): void
     {
+
         try {
             $skip = in_array($this->executionState->name, config('nightwatch.exclude.commands') ?? [], true);
 

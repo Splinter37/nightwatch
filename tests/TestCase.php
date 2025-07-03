@@ -8,6 +8,7 @@ use Closure;
 use DateTimeInterface;
 use Exception;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Queue\Console\WorkCommand;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Env;
 use Illuminate\Support\Facades\Http;
@@ -26,9 +27,10 @@ use PHPUnit\Framework\ExpectationFailedException;
 use function array_combine;
 use function array_intersect_key;
 use function collect;
+use function dd;
 use function env;
 use function fopen;
-use function Illuminate\Filesystem\join_paths;
+use function method_exists;
 use function now;
 use function realpath;
 use function sprintf;
@@ -46,11 +48,12 @@ abstract class TestCase extends OrchestraTestCase
     {
         $_ENV['APP_BASE_PATH'] = realpath(__DIR__.'/../workbench/').'/';
 
+        Nightwatch::handleUnrecoverableExceptionsUsing(fn ($e) => dd($e));
+
         parent::setUp();
 
         Http::preventStrayRequests();
 
-        Nightwatch::handleUnrecoverableExceptionsUsing(fn ($e) => throw $e);
         Compatibility::$context = [];
 
         $this->core = $this->app->make(Core::class);
@@ -61,6 +64,10 @@ abstract class TestCase extends OrchestraTestCase
     protected function tearDown(): void
     {
         Str::createUuidsNormally();
+
+        if (method_exists(WorkCommand::class, 'flushState')) {
+            WorkCommand::flushState();
+        }
 
         unset($this->core);
 
@@ -83,7 +90,7 @@ abstract class TestCase extends OrchestraTestCase
 
     protected function fixturePath(string $path): string
     {
-        return join_paths(__DIR__, 'fixtures', $path);
+        return __DIR__.'/fixtures'.Str::start($path, '/');
     }
 
     protected function forceRequestExecutionState(): void
@@ -214,5 +221,12 @@ abstract class TestCase extends OrchestraTestCase
         $actual = array_intersect_key($actual, $keysToBeConsidered);
 
         self::assertSame($expected, $actual, $message);
+    }
+
+    protected function markTestSkippedWhen($condition, string $message): void
+    {
+        if ($condition) {
+            $this->markTestSkipped($message);
+        }
     }
 }

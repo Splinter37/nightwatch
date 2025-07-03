@@ -50,6 +50,7 @@ use Laravel\Nightwatch\Hooks\ExceptionHandlerResolvedHandler;
 use Laravel\Nightwatch\Hooks\GlobalMiddleware;
 use Laravel\Nightwatch\Hooks\HttpClientFactoryResolvedHandler;
 use Laravel\Nightwatch\Hooks\HttpKernelResolvedHandler;
+use Laravel\Nightwatch\Hooks\LivewireListener;
 use Laravel\Nightwatch\Hooks\LogoutListener;
 use Laravel\Nightwatch\Hooks\MailListener;
 use Laravel\Nightwatch\Hooks\NotificationListener;
@@ -67,8 +68,11 @@ use Laravel\Nightwatch\Http\Middleware\Sample;
 use Laravel\Nightwatch\State\CommandState;
 use Laravel\Nightwatch\State\RequestState;
 use Laravel\Octane\Events\RequestReceived;
+use Livewire\Livewire;
+use Livewire\LivewireManager;
 use Throwable;
 
+use function class_exists;
 use function defined;
 use function microtime;
 
@@ -409,6 +413,8 @@ final class NightwatchServiceProvider extends ServiceProvider
          * @see \Laravel\Nightwatch\Core::digest()
          */
         $this->callAfterResolving(HttpKernelContract::class, (new HttpKernelResolvedHandler($core))(...));
+
+        $this->registerLivewireHooks($core);
     }
 
     /**
@@ -452,6 +458,30 @@ final class NightwatchServiceProvider extends ServiceProvider
         $events->listen(CommandStarting::class, (new CommandStartingListener($events, $core, $kernel))(...));
     }
 
+    /**
+     * @param  Core<RequestState>  $core
+     */
+    private function registerLivewireHooks(Core $core): void
+    {
+        if (! class_exists(Livewire::class)) {
+            return;
+        }
+
+        $this->app->booted(static function ($app) use ($core) {
+            if (! $app->bound(LivewireManager::class)) {
+                return;
+            }
+
+            $listener = new LivewireListener($core);
+
+            // Livewire 2
+            Livewire::listen('component.hydrate.subsequent', $listener->componentHydrateSubsequent(...));
+
+            // Livewire 3
+            Livewire::listen('hydrate', $listener->hydrate(...));
+        });
+    }
+
     private function executionState(): RequestState|CommandState
     {
         $trace = (string) Str::uuid();
@@ -462,13 +492,13 @@ final class NightwatchServiceProvider extends ServiceProvider
             /** @var AuthManager */
             $auth = $this->app->make(AuthManager::class);
 
-            $this->app->singleton(
-                UserProvider::class,
-                fn () => new UserProvider($auth, fn () => $this->core->userDetailsResolver)
-            );
+            // $this->app->singleton(
+            //     UserProvider::class,
+            //     fn () => new UserProvider($auth, fn () => $this->core->userDetailsResolver)
+            // );
 
-            /** @var UserProvider */
-            $userProvider = $this->app->make(UserProvider::class);
+            // /** @var UserProvider */
+            // $userProvider = $this->app->make(UserProvider::class);
 
             return new RequestState(
                 timestamp: $this->timestamp,
@@ -477,7 +507,8 @@ final class NightwatchServiceProvider extends ServiceProvider
                 currentExecutionStageStartedAtMicrotime: $this->timestamp,
                 deploy: $this->nightwatchConfig['deployment'] ?? '',
                 server: $this->nightwatchConfig['server'] ?? '',
-                user: $userProvider,
+                // user: $userProvider,
+                user: new UserProvider($auth, fn () => $this->core->userDetailsResolver, fn () => $this->core->report(...)),
             );
         } else {
             return new CommandState(

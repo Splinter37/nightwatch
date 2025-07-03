@@ -234,7 +234,7 @@ jobs:
         laravel: [10, 11, 12]
         prefer-lowest: ['0', '1']
 
-    name: Test package [PHP ${{ matrix.php }}, Laravel ${{ matrix.laravel }}]
+    name: Test package [PHP ${{ matrix.php }}, Laravel ${{ matrix.laravel }}${{ matrix.prefer-lowest == '1' && ', prefer lowest' || '' }}]
 
     steps:
       - name: Checkout code
@@ -265,10 +265,13 @@ jobs:
         run: composer require laravel/framework:^${{ matrix.laravel }} --no-update
 
       - name: Install dependencies
-        run: COMPOSER_PREFER_LOWEST=${{ matrix.prefer-lowest }} composer install --prefer-dist --no-interaction --no-progress
+        run: COMPOSER_PREFER_LOWEST=${{ matrix.prefer-lowest }} composer update --prefer-dist --no-interaction --no-progress
+
+      - name: Create database
+        run: touch tests/database.sqlite
 
       - name: Execute tests
-        run: vendor/bin/phpunit --order-by=random --coverage-text --show-uncovered-for-coverage-text
+        run: vendor/bin/phpunit --order-by=random --coverage-text
 
   agent_tests:
     runs-on: ubuntu-latest
