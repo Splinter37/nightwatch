@@ -2,7 +2,6 @@
 
 namespace Laravel\Nightwatch;
 
-use App\Models\Contract\CoreContract;
 use Illuminate\Auth\AuthManager;
 use Illuminate\Auth\Events\Logout;
 use Illuminate\Cache\Events\CacheHit;
@@ -122,6 +121,7 @@ final class NightwatchServiceProvider extends ServiceProvider
     public function register(): void
     {
         try {
+
             $this->captureTimestamp();
             Compatibility::boot($this->app);
             $this->captureExecutionType();
@@ -500,12 +500,7 @@ final class NightwatchServiceProvider extends ServiceProvider
                 currentExecutionStageStartedAtMicrotime: $this->timestamp,
                 deploy: $this->nightwatchConfig['deployment'] ?? '',
                 server: $this->nightwatchConfig['server'] ?? '',
-//                user: new UserProvider($auth, fn () => $this->core->userDetailsResolver, fn () => $this->core->report(...)),
-                user: new UserProvider(
-                    fn (callable $callback) => $this->core->ignore(static fn () => $callback($auth)),
-                    fn () => $this->core->userDetailsResolver,
-                    fn () => $this->core->report($e)
-                ),
+                user: new UserProvider($auth, fn () => $this->core->userDetailsResolver, fn () => $this->core->report($e)),             
             );
         } else {
             return new CommandState(
