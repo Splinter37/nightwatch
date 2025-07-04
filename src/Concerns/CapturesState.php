@@ -377,10 +377,17 @@ trait CapturesState
     public function request(Request $request, Response $response): void
     {
         try {
-            $skip = in_array($request->path(), config('nightwatch.exclude.requests') ?? [], true);
+            /** @var array<int, string> $patterns */
+            $patterns = config('nightwatch.exclude.request_path') ?? [];
 
-            if($skip) {
-                return;
+            foreach ($patterns as $pattern) {
+                if(
+                    (str_ends_with($pattern, '*') && str_starts_with($request->path(), str_replace('*', '', $pattern)))
+                    ||
+                    $request->path() === $pattern
+                ) {
+                    return;
+                }
             }
         } catch (Throwable $e) {
             //
