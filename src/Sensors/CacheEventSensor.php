@@ -96,7 +96,7 @@ final class CacheEventSensor
                 duration: $duration,
                 ttl: in_array($event::class, [KeyWritten::class, KeyWriteFailed::class], true) ? ($event->seconds ?? 0) : 0,
             ),
-            function () use ($startTime, $record, $event) {
+            function () use ($startTime, $record) {
                 $this->executionState->cacheEvents++;
 
                 return [
