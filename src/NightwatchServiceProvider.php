@@ -121,7 +121,6 @@ final class NightwatchServiceProvider extends ServiceProvider
     public function register(): void
     {
         try {
-
             $this->captureTimestamp();
             Compatibility::boot($this->app);
             $this->captureExecutionType();
@@ -500,7 +499,7 @@ final class NightwatchServiceProvider extends ServiceProvider
                 currentExecutionStageStartedAtMicrotime: $this->timestamp,
                 deploy: $this->nightwatchConfig['deployment'] ?? '',
                 server: $this->nightwatchConfig['server'] ?? '',
-                user: new UserProvider($auth, fn () => $this->core->userDetailsResolver, fn () => $this->core->report($e)),             
+                user: new UserProvider($auth, fn () => $this->core->userDetailsResolver, fn () => $this->core->report(...)),
             );
         } else {
             return new CommandState(
