@@ -131,6 +131,10 @@ final class NightwatchServiceProvider extends ServiceProvider
                 return;
             }
 
+            if($this->isRequest && config('nightwatch.filtering.ignore_queries') && str_contains(request()->path(), 'liwevire/update')) {
+                return;
+            }
+
             $this->registerHooks();
         } catch (Throwable $e) {
             $this->registerException = $e;
