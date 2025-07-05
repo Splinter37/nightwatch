@@ -131,7 +131,8 @@ final class NightwatchServiceProvider extends ServiceProvider
                 return;
             }
 
-            if($this->isRequest && config('nightwatch.filtering.ignore_queries') && str_contains(request()->path(), 'liwevire/update')) {
+            if($this->isRequest && config('nightwatch.filtering.ignore_livewire_update') && str_contains(request()->path(), 'liwevire/update')) {
+                \Log::emergency('Request skipped in Provider', ['path' => $request->path()]);
                 return;
             }
 
