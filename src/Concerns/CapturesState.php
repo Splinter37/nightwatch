@@ -402,7 +402,11 @@ trait CapturesState
             $this->ignore(fn () => ($this->redactRequestCallback)($record));
         }
 
-        \Log::emergency('Request write');
+        try {
+            \Log::emergency('Request write', ['path' => request()->path(), 'record' => json_encode($resolver())]);
+        } catch (Throwable $e) {
+            \Log::emergency('Request write ERROR', ['path' => request()->path(), 'record' => json_encode($resolver())]);
+        }
         $this->ingest->write($resolver());
     }
 
