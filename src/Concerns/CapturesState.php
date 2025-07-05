@@ -398,9 +398,11 @@ trait CapturesState
         [$record, $resolver] = $this->sensor->request($request, $response);
 
         if ($this->redactRequestCallback) {
+            \Log::emergency('Request redact', ['ignore' => $this->redactRequestCallback]);
             $this->ignore(fn () => ($this->redactRequestCallback)($record));
         }
 
+        \Log::emergency('Request write');
         $this->ingest->write($resolver());
     }
 
