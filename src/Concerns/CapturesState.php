@@ -377,7 +377,6 @@ trait CapturesState
     public function request(Request $request, Response $response): void
     {
         try {
-            \Log::error('Request incomming', ['path' => $request->path()]);
             /** @var array<int, string> $patterns */
             $patterns = config('nightwatch.exclude.request_path') ?? [];
 
@@ -398,15 +397,9 @@ trait CapturesState
         [$record, $resolver] = $this->sensor->request($request, $response);
 
         if ($this->redactRequestCallback) {
-            \Log::error('Request redact', ['ignore' => $this->redactRequestCallback]);
             $this->ignore(fn () => ($this->redactRequestCallback)($record));
         }
 
-        try {
-            \Log::error('Request write', ['path' => request()->path(), 'record' => json_encode($resolver())]);
-        } catch (Throwable $e) {
-            \Log::error('Request write ERROR', ['path' => request()->path(), 'record' => json_encode($resolver())]);
-        }
         $this->ingest->write($resolver());
     }
 
