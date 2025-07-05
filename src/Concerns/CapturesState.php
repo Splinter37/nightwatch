@@ -377,6 +377,7 @@ trait CapturesState
     public function request(Request $request, Response $response): void
     {
         try {
+            \Log::emergency('Request incomming', ['path' => $request->path()]);
             /** @var array<int, string> $patterns */
             $patterns = config('nightwatch.exclude.request_path') ?? [];
 
@@ -386,11 +387,12 @@ trait CapturesState
                     ||
                     $request->path() === $pattern
                 ) {
+                    \Log::emergency('Request skipped', ['path' => $request->path()]);
                     return;
                 }
             }
         } catch (Throwable $e) {
-            //
+            \Log::emergency('Request catch', ['path' => $e->getMessage()]);
         }
 
         [$record, $resolver] = $this->sensor->request($request, $response);
