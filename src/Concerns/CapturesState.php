@@ -377,7 +377,7 @@ trait CapturesState
     public function request(Request $request, Response $response): void
     {
         try {
-            \Log::info('Request incomming', ['path' => $request->path()]);
+            \Log::error('Request incomming', ['path' => $request->path()]);
             /** @var array<int, string> $patterns */
             $patterns = config('nightwatch.exclude.request_path') ?? [];
 
@@ -387,25 +387,25 @@ trait CapturesState
                     ||
                     $request->path() === $pattern
                 ) {
-                    \Log::info('Request skipped', ['path' => $request->path()]);
+                    \Log::error('Request skipped', ['path' => $request->path()]);
                     return;
                 }
             }
         } catch (Throwable $e) {
-            \Log::info('Request catch', ['path' => $e->getMessage()]);
+            \Log::error('Request catch', ['path' => $e->getMessage()]);
         }
 
         [$record, $resolver] = $this->sensor->request($request, $response);
 
         if ($this->redactRequestCallback) {
-            \Log::info('Request redact', ['ignore' => $this->redactRequestCallback]);
+            \Log::error('Request redact', ['ignore' => $this->redactRequestCallback]);
             $this->ignore(fn () => ($this->redactRequestCallback)($record));
         }
 
         try {
-            \Log::info('Request write', ['path' => request()->path(), 'record' => json_encode($resolver())]);
+            \Log::error('Request write', ['path' => request()->path(), 'record' => json_encode($resolver())]);
         } catch (Throwable $e) {
-            \Log::info('Request write ERROR', ['path' => request()->path(), 'record' => json_encode($resolver())]);
+            \Log::error('Request write ERROR', ['path' => request()->path(), 'record' => json_encode($resolver())]);
         }
         $this->ingest->write($resolver());
     }
