@@ -53,7 +53,7 @@ final class Ingest implements IngestContract
     public function write(array $record): void
     {
         $this->buffer->write($record);
-        \Log::emergency('Request after write', ['path' => request()->path()]);
+        \Log::info('Request after write', ['path' => request()->path()]);
         if ($this->shouldDigest && $this->buffer->full) {
             $this->digest();
         }
