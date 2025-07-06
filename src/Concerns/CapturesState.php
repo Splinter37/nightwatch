@@ -386,12 +386,11 @@ trait CapturesState
                     ||
                     $request->path() === $pattern
                 ) {
-                    \Log::error('Request skipped', ['path' => $request->path()]);
                     return;
                 }
             }
         } catch (Throwable $e) {
-            \Log::error('Request catch', ['path' => $e->getMessage()]);
+            \Log::error('Nightwatch request catch', ['path' => $e->getMessage()]);
         }
 
         [$record, $resolver] = $this->sensor->request($request, $response);
@@ -418,7 +417,7 @@ trait CapturesState
                 return;
             }
         } catch (Throwable $e) {
-            //
+            \Log::error('Nightwatch jobAttemp catch', ['path' => $e->getMessage()]);
         }
 
         $jobAttempt = $jobAttempt = $this->sensor->jobAttempt($event);
@@ -563,7 +562,7 @@ trait CapturesState
                 return;
             }
         } catch (Throwable $e) {
-            //
+            \Log::error('Nightwatch command catch', ['path' => $e->getMessage()]);
         }
 
         [$record, $resolver] = $this->sensor->command($input, $status);
@@ -618,7 +617,7 @@ trait CapturesState
                 return;
             }
         } catch (Throwable $e) {
-            //
+            \Log::error('Nightwatch scheduled task catch', ['path' => $e->getMessage()]);
         }
 
         $scheduledTask = $this->sensor->scheduledTask($event);
