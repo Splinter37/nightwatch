@@ -73,7 +73,9 @@ use Throwable;
 
 use function class_exists;
 use function defined;
+use function hash;
 use function microtime;
+use function substr;
 
 /**
  * @internal
@@ -219,6 +221,7 @@ final class NightwatchServiceProvider extends ServiceProvider
     {
         $clock = new Clock;
         $executionState = $this->executionState();
+        $tokenHash = substr(hash('xxh128', $this->nightwatchConfig['token'] ?? ''), 0, 7);
 
         $this->app->instance(Core::class, $this->core = new Core(
             ingest: new Ingest(
@@ -229,6 +232,7 @@ final class NightwatchServiceProvider extends ServiceProvider
                 buffer: new RecordsBuffer(
                     length: $this->nightwatchConfig['ingest']['event_buffer'] ?? 500,
                 ),
+                tokenHash: $tokenHash,
             ),
             sensor: new SensorManager(
                 executionState: $executionState,
