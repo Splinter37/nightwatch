@@ -13,6 +13,7 @@ use React\Socket\ServerInterface;
 use React\Socket\TcpServer;
 
 use function date;
+use function file_get_contents;
 use function gethostname;
 use function hash;
 use function in_array;
@@ -76,6 +77,16 @@ $error = static function (string $message): void {
 $debug = in_array($_SERVER['NIGHTWATCH_DEBUG'] ?? null, ['true', '1'], true);
 /** @var ?string $basePath */
 $basePath ??= str_replace(['phar://', '/agent.phar/src'], '', __DIR__);
+
+$signaturePath = $basePath.'/signature.txt';
+$expectedSignature = file_get_contents($signaturePath);
+
+if ($expectedSignature === false) {
+    $error("Unable to read the agent's signature");
+
+    return;
+}
+
 $tokenHash = substr(hash('xxh128', $refreshToken), 0, 7);
 
 /*
@@ -165,6 +176,23 @@ $server = new Server(
     },
 );
 
+$checkSignature = new CheckSignature(
+    loop: $loop,
+    signaturePath: $signaturePath,
+    expectedSignature: $expectedSignature,
+    shutdownDelayInMinutes: 5,
+    onShutdownInitiated: static function ($shuttingDownIn) use ($info) {
+        $info('Agent signature changed: shutting down in '.$shuttingDownIn.' minutes');
+    },
+    onShutdown: static function () use ($info, $loop, $ingest) {
+        $ingest->forceDigest()->finally(static function () use ($info, $loop) {
+            $loop->stop();
+
+            $info('Shutting down');
+        });
+    },
+);
+
 /*
  * Get things rolling...
  */
@@ -172,5 +200,7 @@ $server = new Server(
 $server->start();
 
 $ingestDetails->hydrate();
+
+$checkSignature->start();
 
 $loop->run();
