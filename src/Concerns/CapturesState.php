@@ -76,7 +76,7 @@ trait CapturesState
 
         $this->ingest->shouldDigest($sample);
 
-        Compatibility::addHiddenContext('nightwatch_should_sample', $sample);
+        Compatibility::addSamplingToContext($sample);
     }
 
     /**
@@ -120,12 +120,12 @@ trait CapturesState
 
         try {
             $this->paused = true;
-            Compatibility::addHiddenContext('nightwatch_should_sample', false);
+            Compatibility::addSamplingToContext(false);
 
             return $callback();
         } finally {
             $this->paused = $cachedPaused;
-            Compatibility::addHiddenContext('nightwatch_should_sample', ! $this->paused);
+            Compatibility::addSamplingToContext(! $this->paused);
         }
     }
 
@@ -136,7 +136,7 @@ trait CapturesState
     {
         $this->paused = false;
 
-        Compatibility::addHiddenContext('nightwatch_should_sample', true);
+        Compatibility::addSamplingToContext(true);
     }
 
     /**
@@ -146,7 +146,7 @@ trait CapturesState
     {
         $this->paused = true;
 
-        Compatibility::addHiddenContext('nightwatch_should_sample', false);
+        Compatibility::addSamplingToContext(false);
     }
 
     /**
@@ -488,12 +488,12 @@ trait CapturesState
         }
 
         $this->sample(
-            Compatibility::getHiddenContext('nightwatch_should_sample', true) ? 1.0 : 0.0
+            Compatibility::getSamplingFromContext(default: true) ? 1.0 : 0.0
         );
 
         $this->waitingForJob = false;
         $this->executionState->timestamp = $this->clock->microtime();
-        $this->executionState->setId((string) Str::uuid());
+        $this->executionState->setId($this->uuid->make());
         $this->executionState->executionPreview = Str::tinyText($job->resolveName());
 
         // Beanstalkd throws an exception when attempting to retrieve the job
@@ -569,8 +569,8 @@ trait CapturesState
         $this->resume();
         memory_reset_peak_usage();
 
-        $trace = (string) Str::uuid();
-        Compatibility::addHiddenContext('nightwatch_trace_id', $trace);
+        $trace = $this->uuid->make();
+        Compatibility::addTraceIdToContext($trace);
         $this->executionState->trace = $trace;
         $this->executionState->setId($trace);
         $this->executionState->timestamp = $this->clock->microtime();
@@ -603,10 +603,10 @@ trait CapturesState
         $this->executionState->timestamp = $timestamp;
         $this->executionState->currentExecutionStageStartedAtMicrotime = $timestamp;
 
-        $trace = (string) Str::uuid();
+        $trace = $this->uuid->make();
         $this->executionState->trace = $trace;
         $this->executionState->setId($trace);
-        Compatibility::addHiddenContext('nightwatch_trace_id', $trace);
+        Compatibility::addTraceIdToContext($trace);
     }
 
     /**
