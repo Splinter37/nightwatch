@@ -31,6 +31,7 @@ use function hex2bin;
 use function implode;
 use function ini_get;
 use function ini_set;
+use function json_decode;
 use function json_encode;
 use function report;
 use function response;
@@ -96,7 +97,7 @@ class ExceptionSensorTest extends TestCase
         $ingest->assertWrittenTimes(1);
         $ingest->assertLatestWrite('exception:*', [
             [
-                'v' => 1,
+                'v' => 2,
                 't' => 'exception',
                 'timestamp' => 946688523.456789,
                 'deploy' => 'v1.2.3',
@@ -113,15 +114,21 @@ class ExceptionSensorTest extends TestCase
                 'line' => $line,
                 'message' => 'Whoops!',
                 'code' => '0',
-                'trace' => json_encode(array_map(fn ($frame) => [
-                    'file' => Str::after($frame['file'] ?? '[internal function]', base_path().DIRECTORY_SEPARATOR).(isset($frame['line']) ? ':'.$frame['line'] : ''),
-                    'source' => ($frame['class'] ?? '').($frame['type'] ?? '').$frame['function'].'('.implode(', ', array_map(fn ($arg) => match (gettype($arg)) {
+                'trace' => json_encode([
+                    [
+                        'file' => $this->core->sensor->location->normalizeFile(__FILE__).':'.$line,
+                        'source' => '',
+                    ],
+                    ...array_map(fn ($frame) => [
+                        'file' => Str::after($frame['file'] ?? '[internal function]', base_path().DIRECTORY_SEPARATOR).(isset($frame['line']) ? ':'.$frame['line'] : ''),
+                        'source' => ($frame['class'] ?? '').($frame['type'] ?? '').$frame['function'].'('.implode(', ', array_map(fn ($arg) => match (gettype($arg)) {
 
-                        'object' => $arg::class,
-                        'string' => 'string',
-                        'array' => 'array',
-                    }, $frame['args'])).')',
-                ], $trace)),
+                            'object' => $arg::class,
+                            'string' => 'string',
+                            'array' => 'array',
+                        }, $frame['args'])).')',
+                    ], $trace),
+                ]),
                 'handled' => false,
                 'php_version' => '8.4.1',
                 'laravel_version' => '11.33.0',
@@ -166,7 +173,7 @@ class ExceptionSensorTest extends TestCase
         $ingest->assertWrittenTimes(1);
         $ingest->assertLatestWrite('exception:*', [
             [
-                'v' => 1,
+                'v' => 2,
                 't' => 'exception',
                 'timestamp' => 946688523.456789,
                 'deploy' => 'v1.2.3',
@@ -183,14 +190,21 @@ class ExceptionSensorTest extends TestCase
                 'line' => $line,
                 'message' => 'Whoops!',
                 'code' => '0',
-                'trace' => json_encode(array_map(fn ($frame) => [
-                    'file' => Str::after($frame['file'] ?? '[internal function]', base_path().DIRECTORY_SEPARATOR).(isset($frame['line']) ? ':'.$frame['line'] : ''),
-                    'source' => ($frame['class'] ?? '').($frame['type'] ?? '').$frame['function'].'('.implode(', ', array_map(fn ($arg) => match (gettype($arg)) {
-                        'object' => $arg::class,
-                        'string' => 'string',
-                        'array' => 'array',
-                    }, $frame['args'])).')',
-                ], $trace)),
+                'trace' => json_encode([
+                    [
+                        'file' => $this->core->sensor->location->normalizeFile(__FILE__).':'.$line,
+                        'source' => '',
+                    ],
+                    ...array_map(fn ($frame) => [
+                        'file' => Str::after($frame['file'] ?? '[internal function]', base_path().DIRECTORY_SEPARATOR).(isset($frame['line']) ? ':'.$frame['line'] : ''),
+                        'source' => ($frame['class'] ?? '').($frame['type'] ?? '').$frame['function'].'('.implode(', ', array_map(fn ($arg) => match (gettype($arg)) {
+
+                            'object' => $arg::class,
+                            'string' => 'string',
+                            'array' => 'array',
+                        }, $frame['args'])).')',
+                    ], $trace),
+                ]),
                 'handled' => true,
                 'php_version' => '8.4.1',
                 'laravel_version' => '11.33.0',
@@ -251,6 +265,37 @@ class ExceptionSensorTest extends TestCase
         $ingest->assertLatestWrite('exception:0.message', 'Whoops!');
         $ingest->assertLatestWrite('exception:0.code', '999');
         $ingest->assertLatestWrite('exception:0._group', hash('xxh128', 'Exception,999,workbench/resources/views/exception.blade.php,6'));
+    }
+
+    public function test_it_skips_internal_frames_on_php_errors(): void
+    {
+        $ingest = $this->fakeIngest();
+        $line = __LINE__ + 3;
+        Route::get('/users', function (): void {
+            $foo = [];
+            $foo[0];
+        });
+
+        $response = $this->get('/users');
+
+        $response->assertServerError();
+        $ingest->assertWrittenTimes(1);
+        $ingest->assertLatestWrite('exception:0.message', 'Undefined array key 0');
+        $ingest->assertLatestWrite('exception:0.class', 'ErrorException');
+        $ingest->assertLatestWrite('exception:0.file', 'tests/Feature/Sensors/ExceptionSensorTest.php');
+        $ingest->assertLatestWrite('exception:0.line', $line);
+        $ingest->assertLatestWrite('exception:0.trace', function ($trace) use ($line) {
+            $trace = json_decode($trace, associative: true);
+
+            $this->assertSame('tests/Feature/Sensors/ExceptionSensorTest.php:'.$line, $trace[0]['file']);
+
+            foreach ($trace as $frame) {
+                $this->assertStringNotContainsString('HandleExceptions', $frame['file']);
+                $this->assertStringNotContainsString('HandleExceptions', $frame['source']);
+            }
+
+            return true;
+        });
     }
 
     public function test_it_handles_unknown_lines_for_internal_locations(): void
@@ -320,6 +365,10 @@ class ExceptionSensorTest extends TestCase
         $ingest->assertWrittenTimes(1);
         $ingest->assertLatestWrite('exception:0.trace', json_encode([
             [
+                'file' => $this->core->sensor->location->normalizeFile($e->getFile()).':'.$e->getLine(),
+                'source' => '',
+            ],
+            [
                 'file' => '[internal function]',
                 'source' => '()',
             ],
@@ -359,6 +408,10 @@ class ExceptionSensorTest extends TestCase
         $response->assertServerError();
         $ingest->assertWrittenTimes(1);
         $ingest->assertLatestWrite('exception:0.trace', json_encode([
+            [
+                'file' => $this->core->sensor->location->normalizeFile($e->getFile()).':'.$e->getLine(),
+                'source' => '',
+            ],
             [
                 'file' => '[internal function]',
                 'source' => '()',
@@ -400,6 +453,10 @@ class ExceptionSensorTest extends TestCase
         $ingest->assertWrittenTimes(1);
         $ingest->assertLatestWrite('exception:0.trace', json_encode([
             [
+                'file' => $this->core->sensor->location->normalizeFile($e->getFile()).':'.$e->getLine(),
+                'source' => '',
+            ],
+            [
                 'file' => '[internal function]',
                 'source' => '()',
             ],
@@ -439,6 +496,10 @@ class ExceptionSensorTest extends TestCase
         $response->assertServerError();
         $ingest->assertWrittenTimes(1);
         $ingest->assertLatestWrite('exception:0.trace', json_encode([
+            [
+                'file' => $this->core->sensor->location->normalizeFile($e->getFile()).':'.$e->getLine(),
+                'source' => '',
+            ],
             [
                 'file' => '[internal function]',
                 'source' => '()',
@@ -495,6 +556,10 @@ class ExceptionSensorTest extends TestCase
         $ingest->assertWrittenTimes(1);
         $ingest->assertLatestWrite('exception:0.trace', json_encode([
             [
+                'file' => $this->core->sensor->location->normalizeFile($e->getFile()).':'.$e->getLine(),
+                'source' => '',
+            ],
+            [
                 'file' => '[internal function]',
                 'source' => '()',
             ],
@@ -540,6 +605,10 @@ class ExceptionSensorTest extends TestCase
         $response->assertServerError();
         $ingest->assertWrittenTimes(1);
         $ingest->assertLatestWrite('exception:0.trace', json_encode([
+            [
+                'file' => $this->core->sensor->location->normalizeFile($e->getFile()).':'.$e->getLine(),
+                'source' => '',
+            ],
             [
                 'file' => '[internal function]',
                 'source' => '(foo: int, bar: int)',
@@ -611,7 +680,7 @@ class ExceptionSensorTest extends TestCase
         $ingest->assertWrittenTimes(1);
         $ingest->assertLatestWrite('exception:*', [
             [
-                'v' => 1,
+                'v' => 2,
                 't' => 'exception',
                 'timestamp' => 946688523.456789,
                 'deploy' => 'v1.2.3',
@@ -628,14 +697,21 @@ class ExceptionSensorTest extends TestCase
                 'line' => $line,
                 'message' => 'Whoops!',
                 'code' => '0',
-                'trace' => json_encode(array_map(fn ($frame) => [
-                    'file' => Str::after($frame['file'] ?? '[internal function]', base_path().DIRECTORY_SEPARATOR).(isset($frame['line']) ? ':'.$frame['line'] : ''),
-                    'source' => ($frame['class'] ?? '').($frame['type'] ?? '').$frame['function'].'('.implode(', ', array_map(fn ($arg) => match (gettype($arg)) {
-                        'object' => $arg::class,
-                        'string' => 'string',
-                        'array' => 'array',
-                    }, $frame['args'])).')',
-                ], $trace)),
+                'trace' => json_encode([
+                    [
+                        'file' => $this->core->sensor->location->normalizeFile(__FILE__).':'.$line,
+                        'source' => '',
+                    ],
+                    ...array_map(fn ($frame) => [
+                        'file' => Str::after($frame['file'] ?? '[internal function]', base_path().DIRECTORY_SEPARATOR).(isset($frame['line']) ? ':'.$frame['line'] : ''),
+                        'source' => ($frame['class'] ?? '').($frame['type'] ?? '').$frame['function'].'('.implode(', ', array_map(fn ($arg) => match (gettype($arg)) {
+
+                            'object' => $arg::class,
+                            'string' => 'string',
+                            'array' => 'array',
+                        }, $frame['args'])).')',
+                    ], $trace),
+                ]),
                 'handled' => false,
                 'php_version' => '8.4.1',
                 'laravel_version' => '11.33.0',
