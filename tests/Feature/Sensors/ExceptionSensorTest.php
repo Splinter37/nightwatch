@@ -5,13 +5,15 @@ namespace Tests\Feature\Sensors;
 use Carbon\CarbonImmutable;
 use Exception;
 use Illuminate\Http\Request;
+use Illuminate\Support\Env;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Str;
 use Laravel\Nightwatch\Facades\Nightwatch;
-use Laravel\Nightwatch\Types\Str;
+use Orchestra\Testbench\Attributes\WithEnv;
 use ReflectionClass;
 use RuntimeException;
 use Spatie\LaravelIgnition\IgnitionServiceProvider;
@@ -22,6 +24,7 @@ use Throwable;
 use function array_map;
 use function base64_encode;
 use function base_path;
+use function collect;
 use function dirname;
 use function fclose;
 use function fopen;
@@ -31,6 +34,7 @@ use function hex2bin;
 use function implode;
 use function ini_get;
 use function ini_set;
+use function is_array;
 use function json_decode;
 use function json_encode;
 use function report;
@@ -47,6 +51,7 @@ class ExceptionSensorTest extends TestCase
     protected function setUp(): void
     {
         $this->forceRequestExecutionState();
+        Env::getRepository()->set('NIGHTWATCH_CAPTURE_EXCEPTION_SOURCE_CODE', '0');
 
         parent::setUp();
 
@@ -118,6 +123,7 @@ class ExceptionSensorTest extends TestCase
                     [
                         'file' => $this->core->sensor->location->normalizeFile(__FILE__).':'.$line,
                         'source' => '',
+                        'code' => null,
                     ],
                     ...array_map(fn ($frame) => [
                         'file' => Str::after($frame['file'] ?? '[internal function]', base_path().DIRECTORY_SEPARATOR).(isset($frame['line']) ? ':'.$frame['line'] : ''),
@@ -127,6 +133,7 @@ class ExceptionSensorTest extends TestCase
                             'string' => 'string',
                             'array' => 'array',
                         }, $frame['args'])).')',
+                        'code' => null,
                     ], $trace),
                 ]),
                 'handled' => false,
@@ -194,6 +201,7 @@ class ExceptionSensorTest extends TestCase
                     [
                         'file' => $this->core->sensor->location->normalizeFile(__FILE__).':'.$line,
                         'source' => '',
+                        'code' => null,
                     ],
                     ...array_map(fn ($frame) => [
                         'file' => Str::after($frame['file'] ?? '[internal function]', base_path().DIRECTORY_SEPARATOR).(isset($frame['line']) ? ':'.$frame['line'] : ''),
@@ -203,6 +211,7 @@ class ExceptionSensorTest extends TestCase
                             'string' => 'string',
                             'array' => 'array',
                         }, $frame['args'])).')',
+                        'code' => null,
                     ], $trace),
                 ]),
                 'handled' => true,
@@ -226,6 +235,44 @@ class ExceptionSensorTest extends TestCase
         $response->assertServerError();
         $ingest->assertWrittenTimes(1);
         $ingest->assertLatestWrite('request:0.exceptions', 3);
+    }
+
+    #[WithEnv('NIGHTWATCH_CAPTURE_EXCEPTION_SOURCE_CODE', '0')]
+    public function test_it_can_disable_source_code_capture(): void
+    {
+        $ingest = $this->fakeIngest();
+        $trace = null;
+        $line = null;
+        Route::get('/users', function () use (&$trace, &$line): void {
+            $line = __LINE__ + 1;
+            $e = new MyException('Whoops!');
+
+            $trace = $e->getTrace();
+
+            report($e);
+        });
+
+        $response = $this->get('/users');
+
+        $response->assertOk();
+        $ingest->assertWrittenTimes(1);
+        $records = $ingest->decodedWrites()->last();
+        $record = collect($records)->where('t', 'exception')->first();
+
+        $this->assertSame('Tests\Feature\Sensors\MyException', $record['class']);
+        $this->assertSame('tests/Feature/Sensors/ExceptionSensorTest.php', $record['file']);
+        $this->assertSame($line, $record['line']);
+        $this->assertSame('Whoops!', $record['message']);
+        $this->assertTrue($record['handled']);
+
+        $this->assertArrayNotHasKey('source_lines', $record);
+
+        $trace = json_decode($record['trace'], true);
+        $this->assertIsArray($trace);
+
+        foreach ($trace as $frame) {
+            $this->assertArrayNotHasKey('source_lines', $frame, 'Trace frames should not include source lines when feature is disabled');
+        }
     }
 
     public function test_it_handles_view_exceptions(): void
@@ -367,18 +414,22 @@ class ExceptionSensorTest extends TestCase
             [
                 'file' => $this->core->sensor->location->normalizeFile($e->getFile()).':'.$e->getLine(),
                 'source' => '',
+                'code' => null,
             ],
             [
                 'file' => '[internal function]',
                 'source' => '()',
+                'code' => null,
             ],
             [
                 'file' => '[unknown file]',
                 'source' => '()',
+                'code' => null,
             ],
             [
                 'file' => 'the/file.php',
                 'source' => '()',
+                'code' => null,
             ],
         ]));
     }
@@ -411,18 +462,22 @@ class ExceptionSensorTest extends TestCase
             [
                 'file' => $this->core->sensor->location->normalizeFile($e->getFile()).':'.$e->getLine(),
                 'source' => '',
+                'code' => null,
             ],
             [
                 'file' => '[internal function]',
                 'source' => '()',
+                'code' => null,
             ],
             [
                 'file' => '[internal function]',
                 'source' => '()',
+                'code' => null,
             ],
             [
                 'file' => '[internal function]:5',
                 'source' => '()',
+                'code' => null,
             ],
         ]));
     }
@@ -455,18 +510,22 @@ class ExceptionSensorTest extends TestCase
             [
                 'file' => $this->core->sensor->location->normalizeFile($e->getFile()).':'.$e->getLine(),
                 'source' => '',
+                'code' => null,
             ],
             [
                 'file' => '[internal function]',
                 'source' => '()',
+                'code' => null,
             ],
             [
                 'file' => '[internal function]',
                 'source' => '()',
+                'code' => null,
             ],
             [
                 'file' => '[internal function]',
                 'source' => 'TheClass()',
+                'code' => null,
             ],
         ]));
     }
@@ -499,18 +558,22 @@ class ExceptionSensorTest extends TestCase
             [
                 'file' => $this->core->sensor->location->normalizeFile($e->getFile()).':'.$e->getLine(),
                 'source' => '',
+                'code' => null,
             ],
             [
                 'file' => '[internal function]',
                 'source' => '()',
+                'code' => null,
             ],
             [
                 'file' => '[internal function]',
                 'source' => '()',
+                'code' => null,
             ],
             [
                 'file' => '[internal function]',
                 'source' => 'the_function()',
+                'code' => null,
             ],
         ]));
     }
@@ -558,22 +621,27 @@ class ExceptionSensorTest extends TestCase
             [
                 'file' => $this->core->sensor->location->normalizeFile($e->getFile()).':'.$e->getLine(),
                 'source' => '',
+                'code' => null,
             ],
             [
                 'file' => '[internal function]',
                 'source' => '()',
+                'code' => null,
             ],
             [
                 'file' => '[internal function]',
                 'source' => '()',
+                'code' => null,
             ],
             [
                 'file' => '[internal function]',
                 'source' => '()',
+                'code' => null,
             ],
             [
                 'file' => '[internal function]',
                 'source' => '(null, bool, int, float, string, array, stdClass, Tests\Feature\Sensors\MyEnum, Closure, resource, resource (closed))',
+                'code' => null,
             ],
         ]));
 
@@ -608,10 +676,12 @@ class ExceptionSensorTest extends TestCase
             [
                 'file' => $this->core->sensor->location->normalizeFile($e->getFile()).':'.$e->getLine(),
                 'source' => '',
+                'code' => null,
             ],
             [
                 'file' => '[internal function]',
                 'source' => '(foo: int, bar: int)',
+                'code' => null,
             ],
         ]));
     }
@@ -701,6 +771,7 @@ class ExceptionSensorTest extends TestCase
                     [
                         'file' => $this->core->sensor->location->normalizeFile(__FILE__).':'.$line,
                         'source' => '',
+                        'code' => null,
                     ],
                     ...array_map(fn ($frame) => [
                         'file' => Str::after($frame['file'] ?? '[internal function]', base_path().DIRECTORY_SEPARATOR).(isset($frame['line']) ? ':'.$frame['line'] : ''),
@@ -710,6 +781,7 @@ class ExceptionSensorTest extends TestCase
                             'string' => 'string',
                             'array' => 'array',
                         }, $frame['args'])).')',
+                        'code' => null,
                     ], $trace),
                 ]),
                 'handled' => false,
@@ -769,6 +841,145 @@ class ExceptionSensorTest extends TestCase
         $response->assertOk();
         $ingest->assertWrittenTimes(1);
         $ingest->assertLatestWrite('exception:0.handled', true);
+    }
+
+    #[WithEnv('NIGHTWATCH_CAPTURE_EXCEPTION_SOURCE_CODE', '1')]
+    public function test_it_captures_source_code_lines(): void
+    {
+        $ingest = $this->fakeIngest();
+
+        $response = $this->get('/test-exception');
+        $response->assertServerError();
+        $ingest->assertWrittenTimes(1);
+        $ingest->assertLatestWrite('exception:0.trace', function ($value) {
+            $frames = collect(json_decode($value, true));
+
+            $this->assertEquals([
+                23 => '    /**',
+                24 => '     * Get the message envelope.',
+                25 => '     */',
+                26 => '    public function envelope(): Envelope',
+                27 => '    {',
+                28 => '        return new Envelope(',
+                29 => '            subject: $this->subject,',
+                30 => '        );',
+                31 => '    }',
+                32 => '',
+                33 => '    /**',
+            ], $frames->firstWhere('file', 'workbench/app/Mail/MyMail.php:28')['code']);
+
+            $this->assertEquals([
+                13 => 'final class ExceptionTestController',
+                14 => '{',
+                15 => '    public function __invoke()',
+                16 => '    {',
+                17 => '        try {',
+                18 => '            Mail::to(\'test@test.com\')->send(new MyMail([\'effect\' => \'This explodes\']));',
+                19 => '        } catch (Exception $e) {',
+                20 => '            report($e);',
+                21 => '',
+                22 => '            abort(500, \'Exploding as expected\');',
+                23 => '        }',
+            ], $frames->firstWhere('file', 'workbench/app/Http/ExceptionTestController.php:18')['code']);
+
+            $this->assertEquals([
+                29 => '            $this->nightwatch->stage(ExecutionStage::Action);',
+                30 => '        } catch (Throwable $e) {',
+                31 => '            $this->nightwatch->report($e, handled: true);',
+                32 => '        }',
+                33 => '',
+                34 => '        return $next($request);',
+                35 => '    }',
+                36 => '}',
+                37 => '',
+            ], $frames->firstWhere('file', 'src/Hooks/RouteMiddleware.php:34')['code']);
+
+            $this->assertEquals([
+                48 => '            $this->nightwatch->captureRequestPreview($request);',
+                49 => '        } catch (Throwable $e) {',
+                50 => '            $this->nightwatch->report($e, handled: true);',
+                51 => '        }',
+                52 => '',
+                53 => '        return $next($request);',
+                54 => '    }',
+                55 => '',
+                56 => '    public function terminate(Request $request, Response $response): void',
+                57 => '    {',
+                58 => '        if ($this->hasTerminated || Compatibility::$terminatingEventExists) {',
+            ], $frames->firstWhere('file', 'src/Hooks/GlobalMiddleware.php:53')['code']);
+
+            return true;
+        });
+    }
+
+    #[WithEnv('NIGHTWATCH_CAPTURE_EXCEPTION_SOURCE_CODE', '1')]
+    public function test_it_captures_code_from_a_maximum_of_ten_frames(): void
+    {
+        $ingest = $this->fakeIngest();
+        Route::get('/users', function (): void {
+            $e = new Exception('Whoops!');
+            $reflectedException = new ReflectionClass($e);
+            $reflectedException->getProperty('trace')->setValue($e, [
+                [
+                    'file' => __FILE__,
+                    'line' => 1,
+                ],
+                [
+                    'file' => __FILE__,
+                    'line' => 1,
+                ],
+                [
+                    'file' => __FILE__,
+                    'line' => 1,
+                ],
+                [
+                    'file' => __FILE__,
+                    'line' => 1,
+                ],
+                [
+                    'file' => __FILE__,
+                    'line' => 1,
+                ],
+                [
+                    'file' => __FILE__,
+                    'line' => 1,
+                ],
+                [
+                    'file' => __FILE__,
+                    'line' => 1,
+                ],
+                [
+                    'file' => __FILE__,
+                    'line' => 1,
+                ],
+                [
+                    'file' => __FILE__,
+                    'line' => 1,
+                ],
+                [
+                    'file' => __FILE__,
+                    'line' => 1,
+                ],
+                [
+                    'file' => __FILE__,
+                    'line' => 1,
+                ],
+            ]);
+
+            throw $e;
+        });
+
+        $response = $this->get('/users');
+
+        $response->assertServerError();
+        $ingest->assertWrittenTimes(1);
+        $ingest->assertLatestWrite('exception:0.trace', function ($trace) {
+            $trace = collect(json_decode($trace, associative: true));
+
+            $this->assertCount(10, $trace->where(fn ($frame) => is_array($frame['code'])));
+
+            return true;
+        });
     }
 }
 
