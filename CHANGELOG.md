@@ -1,6 +1,15 @@
 # Release Notes
 
-## [Unreleased](https://github.com/laravel/nightwatch/compare/v1.5.0...1.x)
+## [Unreleased](https://github.com/laravel/nightwatch/compare/v1.13.2...1.x)
+
+## [v1.13.2](https://github.com/laravel/nightwatch/compare/v1.5.0...v1.13.2) - 2025-08-25
+
+### What's Changed
+
+* Commit changelog changes by [@timacdonald](https://github.com/timacdonald) in https://github.com/laravel/nightwatch/pull/253
+* Send fatal errors to agent immediately by [@jessarcher](https://github.com/jessarcher) in https://github.com/laravel/nightwatch/pull/254
+
+**Full Changelog**: https://github.com/laravel/nightwatch/compare/v1.13.1...v1.13.2
 
 ## [v1.5.0](https://github.com/laravel/nightwatch/compare/v1.4.0...v1.5.0) - 2025-05-07
 
