@@ -1,6 +1,15 @@
 # Release Notes
 
-## [Unreleased](https://github.com/laravel/nightwatch/compare/v1.13.2...1.x)
+## [Unreleased](https://github.com/laravel/nightwatch/compare/v1.13.3...1.x)
+
+## [v1.13.3](https://github.com/laravel/nightwatch/compare/v1.13.2...v1.13.3) - 2025-09-08
+
+### What's Changed
+
+* Restore missing changelog entries by [@timacdonald](https://github.com/timacdonald) in https://github.com/laravel/nightwatch/pull/257
+* Capture scheduled tasks that run in background by [@avosalmon](https://github.com/avosalmon) in https://github.com/laravel/nightwatch/pull/258
+
+**Full Changelog**: https://github.com/laravel/nightwatch/compare/v1.13.2...v1.13.3
 
 ## [v1.13.2](https://github.com/laravel/nightwatch/compare/v1.5.0...v1.13.2) - 2025-08-25
 
@@ -224,6 +233,7 @@
 ## [v1.7.0](https://github.com/laravel/nightwatch/compare/v1.6.0...v1.7.0) - 2025-06-16
 
 ### What's Changed
+
 * Respect ingest uri by [@timacdonald](https://github.com/timacdonald) in https://github.com/laravel/nightwatch/pull/179
 * Extract sampling helper by [@timacdonald](https://github.com/timacdonald) in https://github.com/laravel/nightwatch/pull/180
 * Add description to `AsCommand` attribute by [@timacdonald](https://github.com/timacdonald) in https://github.com/laravel/nightwatch/pull/181
@@ -236,6 +246,7 @@
 ## [v1.6.0](https://github.com/laravel/nightwatch/compare/v1.5.1...v1.6.0) - 2025-06-12
 
 ### What's Changed
+
 * Add PHP 8.4 to CI by [@timacdonald](https://github.com/timacdonald) in https://github.com/laravel/nightwatch/pull/173
 * Configuration based event ignores by type by [@timacdonald](https://github.com/timacdonald) in https://github.com/laravel/nightwatch/pull/175
 * Fix scheduled tasks being collected twice by [@timacdonald](https://github.com/timacdonald) in https://github.com/laravel/nightwatch/pull/177
