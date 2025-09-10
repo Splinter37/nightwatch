@@ -262,7 +262,7 @@ final class SensorManager
         $file = $this->location->normalizeFile($e->getFile());
 
         return [
-            'v' => 2,
+            'v' => 3,
             't' => 'exception',
             'timestamp' => $this->clock->microtime(),
             'deploy' => $this->executionState->deploy,
@@ -270,7 +270,7 @@ final class SensorManager
             '_group' => hash('xxh128', $e::class.','.$e->getCode().','.$file.','.$e->getLine()),
             'trace_id' => $this->executionState->trace,
             'execution_source' => $this->executionState->source,
-            'execution_id' => $this->executionState->id,
+            'execution_id' => '',
             'execution_preview' => $this->executionState->executionPreview,
             'execution_stage' => $this->executionState->stage,
             'user' => $this->executionState->user->resolvedUserId(),

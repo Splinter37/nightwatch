@@ -65,7 +65,7 @@ class CoreTest extends TestCase
         $ingest->assertWrittenTimes(1);
         $ingest->assertLatestWrite('exception:*', [
             [
-                'v' => 2,
+                'v' => 3,
                 't' => 'exception',
                 'timestamp' => 946688523.456789,
                 'deploy' => 'v1.2.3',
@@ -73,7 +73,7 @@ class CoreTest extends TestCase
                 '_group' => hash('xxh128', "Symfony\Component\ErrorHandler\Error\FatalError,0,tests/Unit/CoreTest.php,{$line}"),
                 'trace_id' => '00000000-0000-0000-0000-000000000000',
                 'execution_source' => 'request',
-                'execution_id' => '00000000-0000-0000-0000-000000000001',
+                'execution_id' => '',
                 'execution_preview' => 'GET /fatal',
                 'execution_stage' => 'action',
                 'user' => (string) $user->id,
