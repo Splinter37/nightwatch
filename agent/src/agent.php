@@ -14,12 +14,14 @@ use React\Socket\TcpServer;
 
 use function date;
 use function file_get_contents;
+use function fwrite;
 use function gethostname;
 use function hash;
 use function in_array;
 use function round;
 use function rtrim;
 use function str_replace;
+use function strtolower;
 use function substr;
 
 require __DIR__.'/bootstrap.php';
@@ -58,16 +60,24 @@ $ingestConnectionTimeout ??= 5;
 $ingestTimeout ??= 10;
 /** @var ?string $server */
 $server ??= (string) gethostname();
+/** @var ?bool $silent */
+$silent ??= strtolower($_SERVER['NIGHTWATCH_AGENT_LOG_LEVEL'] ?? '') === 'critical'; // @phpstan-ignore argument.type
+/** @var ?bool $quiet */
+$quiet ??= strtolower($_SERVER['NIGHTWATCH_AGENT_LOG_LEVEL'] ?? '') === 'error'; // @phpstan-ignore argument.type
 
 /*
  * Logging helpers...
  */
 
-$info = static function (string $message): void {
-    echo date('Y-m-d H:i:s').' [INFO] '.$message.PHP_EOL;
+$info = static function (string $message) use ($silent, $quiet): void {
+    if (! $quiet && ! $silent) {
+        fwrite(STDOUT, date('Y-m-d H:i:s').' [INFO] '.$message.PHP_EOL);
+    }
 };
-$error = static function (string $message): void {
-    echo date('Y-m-d H:i:s').' [ERROR] '.$message.PHP_EOL;
+$error = static function (string $message) use ($silent): void {
+    if (! $silent) {
+        fwrite(STDERR, date('Y-m-d H:i:s').' [ERROR] '.$message.PHP_EOL);
+    }
 };
 
 /*
@@ -118,7 +128,7 @@ $ingestDetails = new IngestDetailsRepository(
     loop: $loop,
     browser: $ingestDetailsBrowser,
     onAuthenticationSuccess: static fn (IngestDetails $ingestDetails, float $duration) => $info('Authentication successful ['.round($duration, 3).'s]'),
-    onAuthenticationError: static fn (string $message, float $duration) => $info('Authentication failed ['.round($duration, 3).'s]: '.$message),
+    onAuthenticationError: static fn (string $message, float $duration) => $error('Authentication failed ['.round($duration, 3).'s]: '.$message),
     onUnderQuota: static function () use (&$ingest) {
         /** @var Ingest $ingest */
         $ingest->resumeIngestion();
@@ -145,8 +155,8 @@ $ingest = new Ingest(
     concurrentRequestLimit: 2,
     maxBufferDurationInSeconds: $debug ? 1 : 10,
     onIngestSuccess: static fn (ResponseInterface $response, float $duration) => $info('Ingest successful ['.round($duration, 3).'s]'),
-    onIngestError: static fn (string $message, float $duration) => $info('Ingest failed ['.round($duration, 3).'s]: '.$message),
-    onOverQuota: static fn (string $message, float $duration) => $info('Ingest attempted ['.round($duration, 3).'s]: '.$message),
+    onIngestError: static fn (string $message, float $duration) => $error('Ingest failed ['.round($duration, 3).'s]: '.$message),
+    onOverQuota: static fn (string $message, float $duration) => $error('Ingest attempted ['.round($duration, 3).'s]: '.$message),
 );
 
 $server = new Server(

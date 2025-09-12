@@ -52,6 +52,10 @@ final class AgentCommand extends Command
 
         $server = $this->option('server') ?? $this->server;
 
+        $silent = $this->option('silent') ?: null;
+
+        $quiet = $this->option('quiet') ?: null;
+
         require __DIR__.'/../../agent/build/agent.phar';
     }
 }
