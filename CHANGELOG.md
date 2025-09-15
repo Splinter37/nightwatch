@@ -1,6 +1,14 @@
 # Release Notes
 
-## [Unreleased](https://github.com/laravel/nightwatch/compare/v1.13.4...1.x)
+## [Unreleased](https://github.com/laravel/nightwatch/compare/v1.13.5...1.x)
+
+## [v1.13.5](https://github.com/laravel/nightwatch/compare/v1.13.4...v1.13.5) - 2025-09-15
+
+### What's Changed
+
+* Improve agent logging behaviour by [@jamesdangercarpenter](https://github.com/jamesdangercarpenter) in https://github.com/laravel/nightwatch/pull/262
+
+**Full Changelog**: https://github.com/laravel/nightwatch/compare/v1.13.4...v1.13.5
 
 ## [v1.13.4](https://github.com/laravel/nightwatch/compare/v1.13.3...v1.13.4) - 2025-09-11
 
