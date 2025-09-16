@@ -1,6 +1,14 @@
 # Release Notes
 
-## [Unreleased](https://github.com/laravel/nightwatch/compare/v1.13.5...1.x)
+## [Unreleased](https://github.com/laravel/nightwatch/compare/v1.13.6...1.x)
+
+## [v1.13.6](https://github.com/laravel/nightwatch/compare/v1.13.5...v1.13.6) - 2025-09-16
+
+### What's Changed
+
+* Fix agent missing options by [@timacdonald](https://github.com/timacdonald) in https://github.com/laravel/nightwatch/pull/264
+
+**Full Changelog**: https://github.com/laravel/nightwatch/compare/v1.13.5...v1.13.6
 
 ## [v1.13.5](https://github.com/laravel/nightwatch/compare/v1.13.4...v1.13.5) - 2025-09-15
 
