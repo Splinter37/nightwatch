@@ -8,6 +8,7 @@ use Laravel\Nightwatch\Facades\Nightwatch;
 use Laravel\Nightwatch\Hooks\GuzzleMiddleware;
 use Laravel\Nightwatch\State\CommandState;
 use Laravel\Nightwatch\State\RequestState;
+use Laravel\Nightwatch\Support\Uuid;
 use Throwable;
 use WeakMap;
 
@@ -50,6 +51,7 @@ final class Core
         public SensorManager $sensor,
         public RequestState|CommandState $executionState,
         public Clock $clock,
+        public Uuid $uuid,
         public array $config,
     ) {
         $this->routesWithMiddlewareRegistered = new WeakMap;
@@ -76,14 +78,14 @@ final class Core
      *
      * @return $this
      */
-    public function digest(): self
+    public function finishExecution(): self
     {
-        if ($this->waitingForJob) {
-            return $this;
-        }
-
         try {
-            $this->ingest->digest();
+            if ($this->sampling) {
+                $this->ingest->digest();
+            } else {
+                $this->ingest->flush();
+            }
         } catch (Throwable $e) {
             Nightwatch::unrecoverableExceptionOccurred($e);
         }

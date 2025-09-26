@@ -2,6 +2,7 @@
 
 namespace Laravel\Nightwatch;
 
+use Deprecated;
 use Laravel\Nightwatch\Contracts\Ingest as IngestContract;
 use RuntimeException;
 use Throwable;
@@ -30,7 +31,7 @@ final class Ingest implements IngestContract
      */
     private array $timeout;
 
-    private bool $shouldDigest = true;
+    private bool $shouldDigestWhenBufferIsFull = true;
 
     /**
      * @param  (callable(string $address, float $timeout): resource)  $streamFactory
@@ -41,6 +42,7 @@ final class Ingest implements IngestContract
         float $timeout,
         public $streamFactory,
         public RecordsBuffer $buffer,
+        private string $tokenHash,
     ) {
         $this->transmitTo = "tcp://{$transmitTo}";
 
@@ -54,9 +56,14 @@ final class Ingest implements IngestContract
     {
         $this->buffer->write($record);
 
-        if ($this->shouldDigest && $this->buffer->full) {
+        if ($this->shouldDigestWhenBufferIsFull && $this->buffer->full) {
             $this->digest();
         }
+    }
+
+    public function writeNow(array $record): void
+    {
+        $this->transmit(Payload::json([$record], $this->tokenHash));
     }
 
     public function flush(): void
@@ -66,21 +73,23 @@ final class Ingest implements IngestContract
 
     public function ping(): void
     {
-        $this->transmit(Payload::text('PING'));
+        $this->transmit(Payload::text('PING', $this->tokenHash));
     }
 
-    public function shouldDigest(bool $bool): void
+    #[Deprecated('Use shouldDigestWhenBufferIsFull instead')]
+    public function shouldDigest(bool $bool = true): void
     {
-        $this->shouldDigest = $bool;
+        $this->shouldDigestWhenBufferIsFull($bool);
+    }
+
+    public function shouldDigestWhenBufferIsFull(bool $bool = true): void
+    {
+        $this->shouldDigestWhenBufferIsFull = $bool;
     }
 
     public function digest(): void
     {
-        if ($this->shouldDigest) {
-            $this->transmit($this->buffer->pull());
-        } else {
-            $this->flush();
-        }
+        $this->transmit($this->buffer->pull($this->tokenHash));
     }
 
     private function transmit(Payload $payload): void

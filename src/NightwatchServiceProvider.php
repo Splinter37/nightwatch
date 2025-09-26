@@ -37,8 +37,8 @@ use Illuminate\Routing\Events\PreparingResponse;
 use Illuminate\Routing\Events\ResponsePrepared;
 use Illuminate\Routing\Events\RouteMatched;
 use Illuminate\Support\Env;
+use Illuminate\Support\Facades\Context;
 use Illuminate\Support\ServiceProvider;
-use Illuminate\Support\Str;
 use Laravel\Nightwatch\Console\AgentCommand;
 use Laravel\Nightwatch\Facades\Nightwatch;
 use Laravel\Nightwatch\Factories\Logger;
@@ -46,6 +46,7 @@ use Laravel\Nightwatch\Hooks\ArtisanStartingListener;
 use Laravel\Nightwatch\Hooks\CacheEventListener;
 use Laravel\Nightwatch\Hooks\CommandBootedHandler;
 use Laravel\Nightwatch\Hooks\CommandStartingListener;
+use Laravel\Nightwatch\Hooks\ContextDehydratingHandler;
 use Laravel\Nightwatch\Hooks\ExceptionHandlerResolvedHandler;
 use Laravel\Nightwatch\Hooks\GlobalMiddleware;
 use Laravel\Nightwatch\Hooks\HttpClientFactoryResolvedHandler;
@@ -55,6 +56,8 @@ use Laravel\Nightwatch\Hooks\LogoutListener;
 use Laravel\Nightwatch\Hooks\MailListener;
 use Laravel\Nightwatch\Hooks\NotificationListener;
 use Laravel\Nightwatch\Hooks\OctaneListener;
+use Laravel\Nightwatch\Hooks\PolyfillContextDehydration;
+use Laravel\Nightwatch\Hooks\PolyfillContextHydration;
 use Laravel\Nightwatch\Hooks\PreparingResponseListener;
 use Laravel\Nightwatch\Hooks\QueryExecutedListener;
 use Laravel\Nightwatch\Hooks\QueuedJobListener;
@@ -67,14 +70,18 @@ use Laravel\Nightwatch\Hooks\TerminatingListener;
 use Laravel\Nightwatch\Http\Middleware\Sample;
 use Laravel\Nightwatch\State\CommandState;
 use Laravel\Nightwatch\State\RequestState;
+use Laravel\Nightwatch\Support\Uuid;
 use Laravel\Octane\Events\RequestReceived;
 use Livewire\Livewire;
 use Livewire\LivewireManager;
+use Ramsey\Uuid\Uuid as BaseUuid;
 use Throwable;
 
 use function class_exists;
 use function defined;
+use function hash;
 use function microtime;
+use function substr;
 
 /**
  * @internal
@@ -112,6 +119,7 @@ final class NightwatchServiceProvider extends ServiceProvider
      *     deployment?: string,
      *     server?: string,
      *     ingest?: array{ uri?: string, timeout?: float|int, connection_timeout?: float|int, event_buffer?: int },
+     *     capture_exception_source_code?: bool,
      *  }
      */
     private array $nightwatchConfig;
@@ -224,7 +232,9 @@ final class NightwatchServiceProvider extends ServiceProvider
     private function buildAndRegisterCore(): void
     {
         $clock = new Clock;
-        $executionState = $this->executionState();
+        $uuid = new Uuid(static fn () => BaseUuid::uuid4()->toString());
+        $executionState = $this->executionState($uuid->make());
+        $tokenHash = substr(hash('xxh128', $this->nightwatchConfig['token'] ?? ''), 0, 7);
 
         $this->app->instance(Core::class, $this->core = new Core(
             ingest: new Ingest(
@@ -235,6 +245,7 @@ final class NightwatchServiceProvider extends ServiceProvider
                 buffer: new RecordsBuffer(
                     length: $this->nightwatchConfig['ingest']['event_buffer'] ?? 500,
                 ),
+                tokenHash: $tokenHash,
             ),
             sensor: new SensorManager(
                 executionState: $executionState,
@@ -243,10 +254,12 @@ final class NightwatchServiceProvider extends ServiceProvider
                     basePath: $this->app->basePath(),
                     publicPath: $this->app->publicPath(),
                 ),
+                captureExceptionSourceCode: (bool) ($this->nightwatchConfig['capture_exception_source_code'] ?? true),
                 config: $this->config,
             ),
             executionState: $executionState,
             clock: $clock,
+            uuid: $uuid,
             config: [
                 'enabled' => $this->nightwatchConfig['enabled'] ?? true,
                 'sampling' => [
@@ -349,6 +362,21 @@ final class NightwatchServiceProvider extends ServiceProvider
 
         $events->listen(RequestReceived::class, (new OctaneListener($core))(...)); // @phpstan-ignore class.notFound
 
+        Queue::createPayloadUsing(static fn ($c, $q, array $payload) => [
+            ...$payload,
+            'nightwatch' => [
+                ...($payload['nightwatch'] ?? []),
+                'job_id' => $core->uuid->make(),
+            ],
+        ]);
+
+        if (Compatibility::$contextExists) {
+            Context::dehydrating(new ContextDehydratingHandler($core));
+        } else {
+            Queue::createPayloadUsing(new PolyfillContextDehydration($core));
+            $events->listen((new PolyfillContextHydration($core))(...));
+        }
+
         //
         // -------------------------------------------------------------------------
         // Execution stage hooks
@@ -415,7 +443,7 @@ final class NightwatchServiceProvider extends ServiceProvider
          * @see \Laravel\Nightwatch\ExecutionStage::End
          * @see \Laravel\Nightwatch\Records\Request
          * @see \Laravel\Nightwatch\ExecutionStage::Terminating
-         * @see \Laravel\Nightwatch\Core::digest()
+         * @see \Laravel\Nightwatch\Core::finishExecution()
          */
         $this->callAfterResolving(HttpKernelContract::class, (new HttpKernelResolvedHandler($core))(...));
 
@@ -447,7 +475,7 @@ final class NightwatchServiceProvider extends ServiceProvider
          * @see \Laravel\Nightwatch\ExecutionStage::Terminating
          * @see \Laravel\Nightwatch\ExecutionStage::End
          * @see \Laravel\Nightwatch\Records\Command
-         * @see \Laravel\Nightwatch\Core::digest()
+         * @see \Laravel\Nightwatch\Core::finishExecution()
          *
          * Jobs...
          * @see \Laravel\Nightwatch\State\CommandState::$source
@@ -458,7 +486,7 @@ final class NightwatchServiceProvider extends ServiceProvider
          * @see \Laravel\Nightwatch\Records\Exception
          *
          * Scheduled tasks...
-         * @see \Laravel\Nightwatch\Core::digest()
+         * @see \Laravel\Nightwatch\Core::finishExecution()
          */
         $events->listen(CommandStarting::class, (new CommandStartingListener($events, $core, $kernel))(...));
     }
@@ -487,16 +515,11 @@ final class NightwatchServiceProvider extends ServiceProvider
         });
     }
 
-    private function executionState(): RequestState|CommandState
+    private function executionState(string $trace): RequestState|CommandState
     {
-        $trace = (string) Str::uuid();
-
-        Compatibility::addHiddenContext('nightwatch_trace_id', $trace);
+        Compatibility::addTraceIdToContext($trace);
 
         if ($this->isRequest) {
-            /** @var AuthManager */
-            $auth = $this->app->make(AuthManager::class);
-
             return new RequestState(
                 timestamp: $this->timestamp,
                 trace: $trace,
@@ -504,16 +527,16 @@ final class NightwatchServiceProvider extends ServiceProvider
                 currentExecutionStageStartedAtMicrotime: $this->timestamp,
                 deploy: $this->nightwatchConfig['deployment'] ?? '',
                 server: $this->nightwatchConfig['server'] ?? '',
-                user: new UserProvider($auth, fn () => $this->core->userDetailsResolver, fn () => $this->core->report(...)),
+                user: $this->userProvider(),
             );
         } else {
             return new CommandState(
                 timestamp: $this->timestamp,
-                trace: new LazyValue(static function () {
-                    return (string) Compatibility::getHiddenContext('nightwatch_trace_id', static function () { // @phpstan-ignore cast.string
-                        $trace = (string) Str::uuid();
+                trace: new LazyValue(function () {
+                    return (string) Compatibility::getTraceIdFromContext(function () { // @phpstan-ignore cast.string
+                        $trace = $this->core->uuid->make();
 
-                        Compatibility::addHiddenContext('nightwatch_trace_id', $trace);
+                        Compatibility::addTraceIdToContext($trace);
 
                         return $trace;
                     });
@@ -522,7 +545,20 @@ final class NightwatchServiceProvider extends ServiceProvider
                 currentExecutionStageStartedAtMicrotime: $this->timestamp,
                 deploy: $this->nightwatchConfig['deployment'] ?? '',
                 server: $this->nightwatchConfig['server'] ?? '',
+                user: $this->userProvider(),
             );
         }
+    }
+
+    private function userProvider(): UserProvider
+    {
+        /** @var AuthManager */
+        $auth = $this->app->make(AuthManager::class);
+
+        return new UserProvider(
+            fn (callable $callback) => $this->core->ignore(static fn () => $callback($auth)),
+            fn () => $this->core->userDetailsResolver,
+            fn () => $this->core->report(...),
+        );
     }
 }

@@ -23,19 +23,24 @@ use Laravel\Nightwatch\State\RequestState;
 use Orchestra\Testbench\Concerns\WithWorkbench;
 use Orchestra\Testbench\TestCase as OrchestraTestCase;
 use PHPUnit\Framework\ExpectationFailedException;
+use ReflectionFunction;
 
 use function array_combine;
 use function array_intersect_key;
+use function class_exists;
 use function collect;
 use function dd;
 use function env;
 use function fopen;
+use function hash;
+use function is_string;
 use function method_exists;
 use function now;
 use function realpath;
 use function sprintf;
 use function stream_wrapper_register;
 use function stream_wrapper_unregister;
+use function substr;
 use function touch;
 
 abstract class TestCase extends OrchestraTestCase
@@ -46,7 +51,7 @@ abstract class TestCase extends OrchestraTestCase
 
     protected function setUp(): void
     {
-        $_ENV['APP_BASE_PATH'] = realpath(__DIR__.'/../workbench/').'/';
+        $this->configureEnvironmentForCurrentTest();
 
         Nightwatch::handleUnrecoverableExceptionsUsing(fn ($e) => dd($e));
 
@@ -105,6 +110,32 @@ abstract class TestCase extends OrchestraTestCase
         Env::getRepository()->clear('NIGHTWATCH_FORCE_REQUEST');
     }
 
+    protected function configureEnvironmentForCurrentTest()
+    {
+        $_ENV['APP_BASE_PATH'] = realpath(__DIR__.'/../workbench/').'/';
+
+        $currentTest = new ReflectionFunction($this->{$this->name()}(...));
+
+        if (! class_exists('Orchestra\Testbench\Attributes\WithEnv')) {
+            foreach ($currentTest->getAttributes('Orchestra\Testbench\Attributes\WithEnv') as $attribute) {
+                [$name, $value] = $attribute->getArguments();
+
+                $clear = ! Env::getRepository()->has($name);
+                $previousValue = Env::getRepository()->get($name);
+
+                Env::getRepository()->set($name, $value);
+
+                $this->beforeApplicationDestroyed(function () use ($name, $clear, $previousValue) {
+                    if ($clear) {
+                        Env::getRepository()->clear($name);
+                    } else {
+                        Env::getRepository()->set($name, $previousValue);
+                    }
+                });
+            }
+        }
+    }
+
     /**
      * @param  (callable(Ingest, Collection): FakeIngest)  $callback
      */
@@ -153,7 +184,7 @@ abstract class TestCase extends OrchestraTestCase
     {
         $this->core->executionState->trace = $traceId;
 
-        Compatibility::addHiddenContext('nightwatch_trace_id', $traceId);
+        Compatibility::addTraceIdToContext($traceId);
     }
 
     protected function setExecutionStart(CarbonImmutable $timestamp): void
@@ -228,5 +259,23 @@ abstract class TestCase extends OrchestraTestCase
         if ($condition) {
             $this->markTestSkipped($message);
         }
+    }
+
+    protected function markTestSkippedUnless($condition, string $message): void
+    {
+        if (! $condition) {
+            $this->markTestSkipped($message);
+        }
+    }
+
+    public static function tokenHash(): string
+    {
+        $refreshToken = $_SERVER['NIGHTWATCH_TOKEN'] ?? '';
+
+        if (! is_string($refreshToken)) {
+            throw new RuntimeException('NIGHTWATCH_TOKEN invalid');
+        }
+
+        return substr(hash('xxh128', $refreshToken), 0, 7);
     }
 }

@@ -51,7 +51,7 @@ final class CommandStartingListener
 
         try {
             match ($event->command) {
-                'queue:work', 'queue:listen', 'horizon:work' => $this->registerJobHooks(),
+                'queue:work', 'queue:listen', 'horizon:work', 'vapor:work' => $this->registerJobHooks($event),
                 'schedule:run', 'schedule:work' => $this->registerScheduledTaskHooks(),
                 default => $this->registerCommandHooks($event),
             };
@@ -60,12 +60,12 @@ final class CommandStartingListener
         }
     }
 
-    private function registerJobHooks(): void
+    private function registerJobHooks(CommandStarting $event): void
     {
         $this->nightwatch->configureForJobs();
 
         /**
-         * @see \Laravel\Nightwatch\Core::digest()
+         * @see \Laravel\Nightwatch\Core::finishExecution()
          * @see \Laravel\Nightwatch\State\CommandState::flush()
          * @see \Laravel\Nightwatch\State\CommandState::$timestamp
          * @see \Laravel\Nightwatch\State\CommandState::$id
@@ -79,13 +79,17 @@ final class CommandStartingListener
 
         /**
          * @see \Laravel\Nightwatch\Records\JobAttempt
-         * @see \Laravel\Nightwatch\Core::digest()
+         * @see \Laravel\Nightwatch\Core::finishExecution()
          */
         $this->events->listen([
             JobProcessed::class,
             JobReleasedAfterException::class,
             JobFailed::class,
         ], (new JobAttemptListener($this->nightwatch))(...));
+
+        if ($event->command === 'vapor:work') {
+            $this->events->listen(CommandFinished::class, (new VaporWorkCommandFinishedListener($this->nightwatch))(...));
+        }
     }
 
     private function registerScheduledTaskHooks(): void
@@ -95,7 +99,7 @@ final class CommandStartingListener
         $this->events->listen(ScheduledTaskStarting::class, (new ScheduledTaskStartingListener($this->nightwatch))(...));
 
         /**
-         * @see \Laravel\Nightwatch\Core::digest()
+         * @see \Laravel\Nightwatch\Core::finishExecution()
          */
         $this->events->listen([
             ScheduledTaskFinished::class,
@@ -122,7 +126,7 @@ final class CommandStartingListener
         /**
          * @see \Laravel\Nightwatch\ExecutionStage::End
          * @see \Laravel\Nightwatch\Records\Command
-         * @see \Laravel\Nightwatch\Core::digest()
+         * @see \Laravel\Nightwatch\Core::finishExecution()
          */
         $this->kernel->whenCommandLifecycleIsLongerThan(-1, new CommandLifecycleIsLongerThanHandler($this->nightwatch));
     }

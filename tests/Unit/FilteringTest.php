@@ -355,7 +355,7 @@ class FilteringTest extends TestCase
 
             $run = true;
         });
-        $this->core->digest();
+        $this->core->finishExecution();
 
         $this->assertTrue($run);
         $ingest->assertWrittenTimes(0);
@@ -372,7 +372,7 @@ class FilteringTest extends TestCase
 
             $run = true;
         });
-        $this->core->digest();
+        $this->core->finishExecution();
 
         $this->assertTrue($run);
         $ingest->assertWrittenTimes(1);
@@ -389,18 +389,18 @@ class FilteringTest extends TestCase
     {
         $ingest = $this->fakeIngest();
         Route::get('/test', function () {
-            $this->assertTrue(Compatibility::getHiddenContext('nightwatch_should_sample'));
+            $this->assertTrue(Compatibility::getSamplingFromContext());
             MyJob::dispatch();
 
             $response = $this->core->ignore(function () {
                 MyJob::dispatch();
-                $this->assertFalse(Compatibility::getHiddenContext('nightwatch_should_sample'));
+                $this->assertFalse(Compatibility::getSamplingFromContext());
 
                 return 'ok';
             });
 
             MyJob::dispatch();
-            $this->assertTrue(Compatibility::getHiddenContext('nightwatch_should_sample'));
+            $this->assertTrue(Compatibility::getSamplingFromContext());
 
             return $response;
         });
@@ -528,5 +528,20 @@ class FilteringTest extends TestCase
         $ingest->assertWrittenTimes(1);
         $ingest->assertLatestWrite('request:0.url', 'http://localhost/test/***@***?token=***');
         $ingest->assertLatestWrite('request:0.ip', '127.0.*.*');
+    }
+
+    public function test_it_restores_context_sampling_state_when_ignoring(): void
+    {
+        Compatibility::addSamplingToContext(true);
+
+        Nightwatch::ignore(fn () => null);
+
+        $this->assertTrue(Compatibility::getSamplingFromContext());
+
+        Compatibility::addSamplingToContext(false);
+
+        Nightwatch::ignore(fn () => null);
+
+        $this->assertFalse(Compatibility::getSamplingFromContext());
     }
 }

@@ -34,6 +34,7 @@ use Monolog\LogRecord;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
 use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\ErrorHandler\Error\FatalError;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
 use WeakMap;
@@ -41,6 +42,7 @@ use WeakMap;
 use function array_shift;
 use function array_unshift;
 use function debug_backtrace;
+use function env;
 use function memory_reset_peak_usage;
 use function random_int;
 
@@ -52,8 +54,6 @@ trait CapturesState
     private bool $sampling = true;
 
     private bool $paused = false;
-
-    private bool $waitingForJob = false;
 
     /**
      * @var WeakMap<Route, bool>
@@ -73,9 +73,9 @@ trait CapturesState
 
         $this->sampling = $sample;
 
-        $this->ingest->shouldDigest($sample);
+        $this->ingest->shouldDigestWhenBufferIsFull($sample);
 
-        Compatibility::addHiddenContext('nightwatch_should_sample', $sample);
+        Compatibility::addSamplingToContext($sample);
     }
 
     /**
@@ -116,15 +116,16 @@ trait CapturesState
     public function ignore(callable $callback): mixed
     {
         $cachedPaused = $this->paused;
+        $cachedSamplingInContext = Compatibility::getSamplingFromContext();
 
         try {
             $this->paused = true;
-            Compatibility::addHiddenContext('nightwatch_should_sample', false);
+            Compatibility::addSamplingToContext(false);
 
             return $callback();
         } finally {
             $this->paused = $cachedPaused;
-            Compatibility::addHiddenContext('nightwatch_should_sample', ! $this->paused);
+            Compatibility::addSamplingToContext($cachedSamplingInContext);
         }
     }
 
@@ -135,7 +136,7 @@ trait CapturesState
     {
         $this->paused = false;
 
-        Compatibility::addHiddenContext('nightwatch_should_sample', true);
+        Compatibility::addSamplingToContext(true);
     }
 
     /**
@@ -145,7 +146,7 @@ trait CapturesState
     {
         $this->paused = true;
 
-        Compatibility::addHiddenContext('nightwatch_should_sample', false);
+        Compatibility::addSamplingToContext(false);
     }
 
     /**
@@ -170,7 +171,13 @@ trait CapturesState
         }
 
         try {
-            $this->ingest->write($this->sensor->exception($e, $handled));
+            if ($e instanceof FatalError) {
+                if ($this->sampling) {
+                    $this->ingest->writeNow($this->sensor->fatalError($e));
+                }
+            } else {
+                $this->ingest->write($this->sensor->exception($e, $handled));
+            }
         } catch (Throwable $e) {
             Nightwatch::unrecoverableExceptionOccurred($e);
         }
@@ -482,9 +489,9 @@ trait CapturesState
     /**
      * @internal
      */
-    public function waitForJob(): void
+    public function waitForExecution(): void
     {
-        $this->waitingForJob = true;
+        $this->dontSample();
     }
 
     /**
@@ -493,7 +500,7 @@ trait CapturesState
     public function configureForJobs(): void
     {
         $this->executionState->source = 'job';
-        $this->waitingForJob = true;
+        $this->waitForExecution();
     }
 
     /**
@@ -511,14 +518,26 @@ trait CapturesState
      */
     public function prepareForJob(Job $job): void
     {
+        /** @var Core<CommandState> $this */
+        if ($this->isVapor()) {
+            $this->prepareForNextJob();
+        }
+
         $this->sample(
-            Compatibility::getHiddenContext('nightwatch_should_sample', true) ? 1.0 : 0.0
+            Compatibility::getSamplingFromContext() ? 1.0 : 0.0
         );
 
-        $this->waitingForJob = false;
         $this->executionState->timestamp = $this->clock->microtime();
-        $this->executionState->setId((string) Str::uuid());
+        $this->executionState->setId($this->uuid->make());
         $this->executionState->executionPreview = Str::tinyText($job->resolveName());
+
+        // Beanstalkd throws an exception when attempting to retrieve the job
+        // after it has been processed. Previously, we were retrieving the attempts
+        // when listening for the `JobProcessed|JobReleasedAfterException|JobFailed`
+        // events, however the job has already been removed from beanstalkd
+        // when these events fire. Instead, we will capture it much earlier in
+        // the lifecycle to ensure we can always retrieve the value.
+        $this->executionState->attempts = $job->attempts();
     }
 
     /**
@@ -580,6 +599,7 @@ trait CapturesState
     public function configureForScheduledTasks(): void
     {
         $this->executionState->source = 'schedule';
+        $this->waitForExecution();
     }
 
     /**
@@ -596,11 +616,12 @@ trait CapturesState
         $this->resume();
         memory_reset_peak_usage();
 
-        $trace = (string) Str::uuid();
-        Compatibility::addHiddenContext('nightwatch_trace_id', $trace);
+        $trace = $this->uuid->make();
+        Compatibility::addTraceIdToContext($trace);
         $this->executionState->trace = $trace;
         $this->executionState->setId($trace);
         $this->executionState->timestamp = $this->clock->microtime();
+        $this->sample();
     }
 
     /**
@@ -642,10 +663,10 @@ trait CapturesState
         $this->executionState->timestamp = $timestamp;
         $this->executionState->currentExecutionStageStartedAtMicrotime = $timestamp;
 
-        $trace = (string) Str::uuid();
+        $trace = $this->uuid->make();
         $this->executionState->trace = $trace;
         $this->executionState->setId($trace);
-        Compatibility::addHiddenContext('nightwatch_trace_id', $trace);
+        Compatibility::addTraceIdToContext($trace);
     }
 
     /**
@@ -663,5 +684,10 @@ trait CapturesState
     {
         $this->executionState->flush();
         $this->ingest->flush();
+    }
+
+    private function isVapor(): bool
+    {
+        return env('VAPOR_SSM_PATH') !== null;
     }
 }

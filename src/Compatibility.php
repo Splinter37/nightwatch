@@ -2,11 +2,8 @@
 
 namespace Laravel\Nightwatch;
 
-use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Foundation\Application;
-use Illuminate\Log\Context\Repository as Context;
-use Illuminate\Queue\Events\JobProcessing;
-use Illuminate\Queue\Queue;
+use Illuminate\Support\Facades\Context;
 use ReflectionProperty;
 use Symfony\Component\Console\Input\ArgvInput;
 
@@ -17,8 +14,6 @@ use function version_compare;
 
 final class Compatibility
 {
-    public static Application $app;
-
     public static bool $terminatingEventExists = false;
 
     public static bool $cacheDurationCapturable = false;
@@ -38,13 +33,16 @@ final class Compatibility
     public static bool $queuedJobDurationCapturable = false;
 
     /**
-     * @var array<string, mixed>
+     * @var array{
+     *   nightwatch_should_sample?: bool|null,
+     *   nightwatch_trace_id?: string|null,
+     *   nightwatch_user_id?: string,
+     * }
      */
     public static array $context = [];
 
     public static function boot(Application $app): void
     {
-        self::$app = $app;
         $version = $app->version();
 
         /**
@@ -93,19 +91,6 @@ final class Compatibility
          */
         self::$queuedJobDurationCapturable =
             version_compare($version, '10.42.0', '>=');
-
-        if (! self::$contextExists) {
-            Queue::createPayloadUsing(static fn ($c, $q, array $payload) => [
-                ...$payload,
-                'nightwatch' => self::$context,
-            ]);
-
-            /** @var Dispatcher */
-            $events = $app->make(Dispatcher::class);
-            $events->listen(static function (JobProcessing $event) {
-                self::$context = $event->job->payload()['nightwatch'] ?? [];
-            });
-        }
     }
 
     /**
@@ -122,37 +107,65 @@ final class Compatibility
         return implode(' ', $tokens);
     }
 
-    /**
-     * @see https://github.com/laravel/framework/pull/49730
-     * @see https://github.com/laravel/framework/releases/tag/v11.0.0
-     */
-    public static function addHiddenContext(string $key, mixed $value): void
+    public static function addSamplingToContext(bool $sample): void
     {
-        if (! self::$contextExists) {
-            self::$context[$key] = $value;
+        self::addHiddenContext('nightwatch_should_sample', $sample);
+    }
 
-            return;
-        }
+    public static function getSamplingFromContext(bool $default = true): bool
+    {
+        return (bool) self::getHiddenContext('nightwatch_should_sample', $default);
+    }
 
-        /** @var Context */
-        $context = self::$app->make(Context::class);
+    public static function addTraceIdToContext(string $trace): void
+    {
+        self::addHiddenContext('nightwatch_trace_id', $trace);
+    }
 
-        $context->addHidden($key, $value);
+    public static function getTraceIdFromContext(mixed $default = null): mixed
+    {
+        return self::getHiddenContext('nightwatch_trace_id', $default);
+    }
+
+    public static function addUserIdToContext(string $id): void
+    {
+        self::addHiddenContext('nightwatch_user_id', $id);
+    }
+
+    public static function getUserIdFromContext(): string
+    {
+        return (string) self::getHiddenContext('nightwatch_user_id'); // @phpstan-ignore cast.string
     }
 
     /**
      * @see https://github.com/laravel/framework/pull/49730
      * @see https://github.com/laravel/framework/releases/tag/v11.0.0
+     *
+     * @param  'nightwatch_trace_id'|'nightwatch_should_sample'|'nightwatch_user_id'  $key
      */
-    public static function getHiddenContext(string $key, mixed $default = null): mixed
+    private static function addHiddenContext(string $key, mixed $value): void
+    {
+        if (! self::$contextExists) {
+            self::$context[$key] = $value; // @phpstan-ignore assign.propertyType
+
+            return;
+        }
+
+        Context::addHidden($key, $value);
+    }
+
+    /**
+     * @see https://github.com/laravel/framework/pull/49730
+     * @see https://github.com/laravel/framework/releases/tag/v11.0.0
+     *
+     * @param  'nightwatch_trace_id'|'nightwatch_should_sample'|'nightwatch_user_id'  $key
+     */
+    private static function getHiddenContext(string $key, mixed $default = null): mixed
     {
         if (! self::$contextExists) {
             return self::$context[$key] ?? value($default);
         }
 
-        /** @var Context */
-        $context = self::$app->make(Context::class);
-
-        return $context->getHidden($key) ?? value($default);
+        return Context::getHidden($key) ?? value($default);
     }
 }

@@ -180,35 +180,12 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           ref: ${{ github.head_ref }}
 
-      - name: Setup PHP ${{ env.minimum_supported_php_version }} and tooling
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: ${{ env.minimum_supported_php_version }}
-          extensions: ${{ env.agent_extensions }}
-          ini-values: error_reporting=E_ALL
-          tools: composer:v2, box:4.6.3
-          coverage: none
-
-      # See: https://github.com/shivammathur/setup-php#cache-composer-dependencies
-      - name: Get composer cache directory
-        id: composer-cache
-        run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
-
-      - name: Cache dependencies
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.composer-cache.outputs.dir }}
-          key: ${{ runner.os }}-agent-composer-${{ hashFiles('**/composer.lock') }}-no-dev
-          restore-keys: ${{ runner.os }}-agent-composer
-
-      - name: Install dependencies
-        run: composer install --prefer-dist --no-interaction --no-progress --no-dev
-
       - name: Build agent
         id: build-agent
         run: |
           composer build
           echo "version=$(cat build/signature.txt)" >> "$GITHUB_OUTPUT"
+
       - id: commit-agent
         uses: EndBug/add-and-commit@v9
         with:
@@ -232,7 +209,7 @@ jobs:
       matrix:
         php: [8.2, 8.3, 8.4]
         laravel: [10, 11, 12]
-        prefer-lowest: ['0', '1']
+        prefer-lowest: ["0", "1"]
 
     name: Test package [PHP ${{ matrix.php }}, Laravel ${{ matrix.laravel }}${{ matrix.prefer-lowest == '1' && ', prefer lowest' || '' }}]
 
@@ -271,6 +248,9 @@ jobs:
         run: touch tests/database.sqlite
 
       - name: Execute tests
+        env:
+          NIGHTWATCH_TOKEN: ${{ secrets.NIGHTWATCH_TOKEN }}
+          NIGHTWATCH_BASE_URL: ${{ secrets.NIGHTWATCH_BASE_URL }}
         run: vendor/bin/phpunit --order-by=random --coverage-text
 
   agent_tests:
@@ -321,3 +301,18 @@ jobs:
           NIGHTWATCH_TOKEN: ${{ secrets.NIGHTWATCH_TOKEN }}
           NIGHTWATCH_BASE_URL: ${{ secrets.NIGHTWATCH_BASE_URL }}
         run: vendor/bin/phpunit --order-by=random --coverage-text --show-uncovered-for-coverage-text
+
+      - name: Build and test container
+        run: |
+          # Build and run the container
+          docker build -f Dockerfile -t agent ../
+          docker run --rm -d --name agent agent:latest
+
+          # Test health check passes
+          docker exec --env NIGHTWATCH_TOKEN=fakepkxoLBIOgPE0PZWadR0Ge1zHBh31ATOzXN9bBboZ agent php nightwatch-status || exit 1
+
+          # Test health check fails
+          ! docker exec --env NIGHTWATCH_TOKEN=fakepkxoLBIOgPE0PZWadR0Ge1zHBh31ATOzXN9bBboZ --env NIGHTWATCH_INGEST_URI=127.0.0.1:1234 agent php nightwatch-status || exit 1
+
+          # Stop the container
+          docker stop agent

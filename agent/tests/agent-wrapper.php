@@ -32,7 +32,7 @@ if (! is_array($payload)) {
     exit(1);
 }
 
-/** @var array{listenOn: string, viaPhar: bool, ingestDetailsBrowser: \Tests\BrowserFake|null, ingestBrowser: \Tests\BrowserFake|null, loop: \Tests\LoopFake|null, server: \Tests\TcpServerFake|null }  $payload */
+/** @var array{listenOn: string, viaPhar: bool, ingestDetailsBrowser: \Tests\BrowserFake|null, ingestBrowser: \Tests\BrowserFake|null, loop: \Tests\LoopFake|null, server: \Tests\TcpServerFake|null, silent: bool|null, quiet: bool|null, verbose: bool|null }  $payload */
 [
     'listenOn' => $listenOn,
     'viaPhar' => $viaPhar,
@@ -40,6 +40,9 @@ if (! is_array($payload)) {
     'ingestBrowser' => $ingestBrowser,
     'loop' => $loop,
     'server' => $server,
+    'silent' => $silent,
+    'quiet' => $quiet,
+    'verbose' => $verbose,
 ] = $payload;
 
 $browserFactory = null;
@@ -47,12 +50,12 @@ $serverResolver = null;
 
 if ($viaPhar === false) {
     pcntl_async_signals(true);
-    pcntl_signal(SIGTERM, function () use ($payloadFile, $ingestDetailsBrowser, $ingestBrowser, $loop, $server) {
+    pcntl_signal(SIGTERM, function () use ($payloadFile, $ingestDetailsBrowser, $ingestBrowser, $loop, $server, $silent, $quiet) {
         $server?->removeAllListeners();
         foreach ($server->connections ?? [] as $connection) {
             $connection->removeAllListeners();
         }
-        if ($loop?->stopped) {
+        if ($loop?->running === false) {
             foreach ($loop->pendingTimers as &$timer) {
                 $timer = [
                     ...$timer,
@@ -68,6 +71,8 @@ if ($viaPhar === false) {
             'ingestBrowser' => $ingestBrowser,
             'loop' => $loop,
             'server' => $server,
+            'silent' => $silent,
+            'quiet' => $quiet,
         ]));
     });
 
@@ -103,11 +108,11 @@ if ($viaPhar === false) {
 }
 
 if ($viaPhar) {
-    call_user_func(static function () use ($listenOn, $browserFactory, $serverResolver, $loop) { // @phpstan-ignore closure.unusedUse, closure.unusedUse, closure.unusedUse, closure.unusedUse
+    call_user_func(static function () use ($listenOn, $browserFactory, $serverResolver, $loop, $silent, $quiet, $verbose) { // @phpstan-ignore closure.unusedUse, closure.unusedUse, closure.unusedUse, closure.unusedUse, closure.unusedUse, closure.unusedUse, closure.unusedUse
         require __DIR__.'/../build/agent.phar';
     });
 } else {
-    call_user_func(static function () use ($listenOn, $browserFactory, $serverResolver, $loop) {  // @phpstan-ignore closure.unusedUse, closure.unusedUse, closure.unusedUse, closure.unusedUse
+    call_user_func(static function () use ($listenOn, $browserFactory, $serverResolver, $loop, $silent, $quiet, $verbose) {  // @phpstan-ignore closure.unusedUse, closure.unusedUse, closure.unusedUse, closure.unusedUse, closure.unusedUse, closure.unusedUse, closure.unusedUse
         $basePath = __DIR__.'/../build';
         require __DIR__.'/../src/agent.php';
     });
@@ -117,7 +122,7 @@ $server?->removeAllListeners();
 foreach ($server->connections ?? [] as $connection) {
     $connection->removeAllListeners();
 }
-if ($loop?->stopped) {
+if ($loop?->running === false) {
     foreach ($loop->pendingTimers as &$timer) {
         $timer = [
             ...$timer,
@@ -133,4 +138,6 @@ file_put_contents($payloadFile, serialize([
     'ingestBrowser' => $ingestBrowser,
     'loop' => $loop,
     'server' => $server,
+    'silent' => $silent,
+    'quiet' => $quiet,
 ]));

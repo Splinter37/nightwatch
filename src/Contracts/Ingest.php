@@ -2,6 +2,8 @@
 
 namespace Laravel\Nightwatch\Contracts;
 
+use Deprecated;
+
 /**
  * @internal
  */
@@ -12,9 +14,17 @@ interface Ingest
      */
     public function write(array $record): void;
 
+    /**
+     * @param  array<mixed>  $record
+     */
+    public function writeNow(array $record): void;
+
     public function ping(): void;
 
-    public function shouldDigest(bool $bool): void;
+    #[Deprecated('Use shouldDigestWhenBufferIsFull instead')]
+    public function shouldDigest(bool $bool = true): void;
+
+    public function shouldDigestWhenBufferIsFull(bool $bool = true): void;
 
     public function digest(): void;
 

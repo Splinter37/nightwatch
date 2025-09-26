@@ -21,7 +21,8 @@ final class AgentCommand extends Command
         {--auth-timeout=}
         {--ingest-connection-timeout=}
         {--ingest-timeout=}
-        {--server=}';
+        {--server=}
+        {--silent : Do not output any message}';
 
     /**
      * @var string
@@ -51,6 +52,12 @@ final class AgentCommand extends Command
         $ingestTimeout = $this->option('ingest-timeout');
 
         $server = $this->option('server') ?? $this->server;
+
+        $silent = $this->option('silent') ?: null;
+
+        $quiet = $this->option('quiet') ?: null;
+
+        $verbose = $this->option('verbose') ?: null;
 
         require __DIR__.'/../../agent/build/agent.phar';
     }
