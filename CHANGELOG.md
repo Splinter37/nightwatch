@@ -1,6 +1,17 @@
 # Release Notes
 
-## [Unreleased](https://github.com/laravel/nightwatch/compare/v1.13.8...1.x)
+## [Unreleased](https://github.com/laravel/nightwatch/compare/v1.14.0...1.x)
+
+## [v1.14.0](https://github.com/laravel/nightwatch/compare/v1.13.8...v1.14.0) - 2025-09-29
+
+### What's Changed
+
+* Associate events on the queue with currently authenticated user or the originating request by [@timacdonald](https://github.com/timacdonald) in https://github.com/laravel/nightwatch/pull/271
+* Context handling improvements by [@timacdonald](https://github.com/timacdonald) in https://github.com/laravel/nightwatch/pull/273
+* Add `Sample` middleware aliases by [@avosalmon](https://github.com/avosalmon) in https://github.com/laravel/nightwatch/pull/275
+* Extract hook for queue payload modification by [@timacdonald](https://github.com/timacdonald) in https://github.com/laravel/nightwatch/pull/274
+
+**Full Changelog**: https://github.com/laravel/nightwatch/compare/v1.13.8...v1.14.0
 
 ## [v1.13.8](https://github.com/laravel/nightwatch/compare/v1.13.7...v1.13.8) - 2025-09-23
 
