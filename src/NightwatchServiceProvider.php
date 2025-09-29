@@ -47,6 +47,7 @@ use Laravel\Nightwatch\Hooks\CacheEventListener;
 use Laravel\Nightwatch\Hooks\CommandBootedHandler;
 use Laravel\Nightwatch\Hooks\CommandStartingListener;
 use Laravel\Nightwatch\Hooks\ContextDehydratingHandler;
+use Laravel\Nightwatch\Hooks\CreateQueuePayloadHandler;
 use Laravel\Nightwatch\Hooks\ExceptionHandlerResolvedHandler;
 use Laravel\Nightwatch\Hooks\GlobalMiddleware;
 use Laravel\Nightwatch\Hooks\HttpClientFactoryResolvedHandler;
@@ -357,13 +358,7 @@ final class NightwatchServiceProvider extends ServiceProvider
 
         $events->listen(RequestReceived::class, (new OctaneListener($core))(...)); // @phpstan-ignore class.notFound
 
-        Queue::createPayloadUsing(static fn ($c, $q, array $payload) => [
-            ...$payload,
-            'nightwatch' => [
-                ...($payload['nightwatch'] ?? []),
-                'job_id' => $core->uuid->make(),
-            ],
-        ]);
+        Queue::createPayloadUsing(new CreateQueuePayloadHandler($core));
 
         if (Compatibility::$contextExists) {
             Context::dehydrating(new ContextDehydratingHandler($core));
