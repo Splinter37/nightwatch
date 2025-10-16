@@ -1,6 +1,18 @@
 # Release Notes
 
-## [Unreleased](https://github.com/laravel/nightwatch/compare/v1.15.0...1.x)
+## [Unreleased](https://github.com/laravel/nightwatch/compare/v1.15.1...1.x)
+
+## [v1.15.1](https://github.com/laravel/nightwatch/compare/v1.15.0...v1.15.1) - 2025-10-16
+
+### What's Changed
+
+* Allow multiple filter callbacks to be registered by [@avosalmon](https://github.com/avosalmon) in https://github.com/laravel/nightwatch/pull/287
+* Allow multiple redact callbacks to be registered by [@avosalmon](https://github.com/avosalmon) in https://github.com/laravel/nightwatch/pull/289
+* Use config dot notation by [@timacdonald](https://github.com/timacdonald) in https://github.com/laravel/nightwatch/pull/288
+* Extract stream helpers by [@timacdonald](https://github.com/timacdonald) in https://github.com/laravel/nightwatch/pull/286
+* Gracefully handle error output on shutdown by [@timacdonald](https://github.com/timacdonald) in https://github.com/laravel/nightwatch/pull/285
+
+**Full Changelog**: https://github.com/laravel/nightwatch/compare/v1.15.0...v1.15.1
 
 ## [v1.15.0](https://github.com/laravel/nightwatch/compare/v1.14.1...v1.15.0) - 2025-10-10
 
