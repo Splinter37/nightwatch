@@ -1,6 +1,14 @@
 # Release Notes
 
-## [Unreleased](https://github.com/laravel/nightwatch/compare/v1.16.0...1.x)
+## [Unreleased](https://github.com/laravel/nightwatch/compare/v1.17.0...1.x)
+
+## [v1.17.0](https://github.com/laravel/nightwatch/compare/v1.16.0...v1.17.0) - 2025-10-22
+
+### What's Changed
+
+* Capture request payload on unhandled exception by [@jessarcher](https://github.com/jessarcher) in https://github.com/laravel/nightwatch/pull/276
+
+**Full Changelog**: https://github.com/laravel/nightwatch/compare/v1.16.0...v1.17.0
 
 ## [v1.16.0](https://github.com/laravel/nightwatch/compare/v1.15.2...v1.16.0) - 2025-10-22
 
