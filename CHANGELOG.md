@@ -1,6 +1,14 @@
 # Release Notes
 
-## [Unreleased](https://github.com/laravel/nightwatch/compare/v1.17.1...1.x)
+## [Unreleased](https://github.com/laravel/nightwatch/compare/v1.18.0...1.x)
+
+## [v1.18.0](https://github.com/laravel/nightwatch/compare/v1.17.1...v1.18.0) - 2025-11-04
+
+### What's Changed
+
+* Add ability to redact exceptions by [@jessarcher](https://github.com/jessarcher) in https://github.com/laravel/nightwatch/pull/296
+
+**Full Changelog**: https://github.com/laravel/nightwatch/compare/v1.17.1...v1.18.0
 
 ## [v1.17.1](https://github.com/laravel/nightwatch/compare/v1.17.0...v1.17.1) - 2025-10-27
 
