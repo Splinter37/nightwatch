@@ -18,6 +18,7 @@ use function call_user_func;
  * @method static void pause()
  * @method static bool paused()
  * @method static void report(\Throwable $e, bool|null $handled = null)
+ * @method static void redactExceptions(callable $callback)
  * @method static void redactCacheEvents(callable $callback)
  * @method static void redactCommands(callable $callback)
  * @method static void redactMail(callable $callback)
