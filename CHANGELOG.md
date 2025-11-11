@@ -1,6 +1,18 @@
 # Release Notes
 
-## [Unreleased](https://github.com/laravel/nightwatch/compare/v1.18.0...1.x)
+## [Unreleased](https://github.com/laravel/nightwatch/compare/v1.18.1...1.x)
+
+## [v1.18.1](https://github.com/laravel/nightwatch/compare/v1.18.0...v1.18.1) - 2025-11-11
+
+#### What's Changed
+
+* Increase concurrent request limit to 5 by [@jradtilbrook](https://github.com/jradtilbrook) in https://github.com/laravel/nightwatch/pull/298
+
+### New Contributors
+
+* [@jradtilbrook](https://github.com/jradtilbrook) made their first contribution in https://github.com/laravel/nightwatch/pull/298
+
+**Full Changelog**: https://github.com/laravel/nightwatch/compare/v1.18.0...v1.18.1
 
 ## [v1.18.0](https://github.com/laravel/nightwatch/compare/v1.17.1...v1.18.0) - 2025-11-04
 
