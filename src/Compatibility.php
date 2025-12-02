@@ -115,9 +115,21 @@ final class Compatibility
         self::addHiddenContext('nightwatch_should_sample', $sample);
     }
 
-    public static function getSamplingFromContext(bool $default = true): bool
+    /**
+     * @template T of bool|null
+     *
+     * @param  T  $default
+     * @return (T is bool ? bool : bool|null)
+     */
+    public static function getSamplingFromContext(?bool $default = true)
     {
-        return (bool) self::getHiddenContext('nightwatch_should_sample', $default);
+        $context = self::getHiddenContext('nightwatch_should_sample', $default);
+
+        if ($context === null) {
+            return null;
+        }
+
+        return (bool) $context;
     }
 
     public static function addTraceIdToContext(string $trace): void

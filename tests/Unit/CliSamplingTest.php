@@ -4,10 +4,18 @@ namespace Tests\Unit;
 
 use App\Jobs\MyJob;
 use App\Jobs\SampledJob;
+use Illuminate\Console\Events\CommandStarting;
+use Illuminate\Console\Events\ScheduledTaskStarting;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Testing\WithConsoleEvents;
 use Illuminate\Support\Facades\Artisan;
 use Laravel\Nightwatch\Compatibility;
+use Laravel\Nightwatch\Facades\Nightwatch;
+use Symfony\Component\Console\Input\StringInput;
+use Symfony\Component\Console\Output\NullOutput;
 use Tests\TestCase;
+
+use function event;
 
 class CliSamplingTest extends TestCase
 {
@@ -106,5 +114,24 @@ class CliSamplingTest extends TestCase
 
         $ingest->assertWrittenTimes(100);
         $this->assertCount(0, $this->core->ingest->buffer);
+    }
+
+    public function test_it_pulls_sample_from_context_when_command_starting(): void
+    {
+        Compatibility::addSamplingToContext(false);
+
+        $this->assertTrue(Nightwatch::sampling());
+        event(new CommandStarting('schedule:run', new StringInput(''), new NullOutput));
+        $this->assertFalse(Nightwatch::sampling());
+    }
+
+    public function test_it_resets_sampling_after_each_task(): void
+    {
+        event(new CommandStarting('schedule:run', new StringInput(''), new NullOutput));
+
+        Nightwatch::dontSample();
+        event(new ScheduledTaskStarting($this->app[Schedule::class]->call('php artisan inspire')));
+
+        $this->assertTrue(Nightwatch::sampling());
     }
 }
