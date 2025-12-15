@@ -44,9 +44,13 @@ use function array_shift;
 use function array_unshift;
 use function debug_backtrace;
 use function env;
+use function in_array;
 use function memory_reset_peak_usage;
 use function preg_match;
+use function preg_split;
 use function random_int;
+use function str_replace;
+use function trim;
 
 /**
  * @internal
@@ -58,6 +62,8 @@ trait CapturesState
     private bool $sampling = true;
 
     private bool $paused = false;
+
+    private bool $captureDefaultVendorCommands = false;
 
     /**
      * @var WeakMap<Event, float>
@@ -114,8 +120,14 @@ trait CapturesState
     /**
      * @internal
      */
-    public function configureCommandSampling(): void
+    public function configureCommandSampling(string $command): void
     {
+        if (! $this->captureDefaultVendorCommands && in_array($command, $this->defaultVendorCommands(), true)) {
+            $this->dontSample();
+
+            return;
+        }
+
         $this->sample(match (Compatibility::getSamplingFromContext(null)) {
             true => 1.0,
             false => 0.0,
@@ -128,7 +140,55 @@ trait CapturesState
      */
     public function configureScheduledTaskSampling(Event $event): void
     {
+        if (! $this->captureDefaultVendorCommands) {
+            $command = str_replace(
+                [Artisan::phpBinary(), Artisan::artisanBinary()],
+                '',
+                $event->command ?? ''
+            );
+
+            $command = preg_split('/\s+/', trim($command), 2)[0] ?? '';
+
+            if (in_array($command, $this->defaultVendorCommands(), true)) {
+                $this->dontSample();
+
+                return;
+            }
+        }
+
         $this->sample(rate: $this->scheduledTasksSampleRates[$event] ?? $this->config['sampling']['scheduled_tasks']);
+    }
+
+    /**
+     * @api
+     */
+    public function captureDefaultVendorCommands(bool $capture = true): void
+    {
+        $this->captureDefaultVendorCommands = $capture;
+    }
+
+    /**
+     * @api
+     *
+     * @return list<string>
+     */
+    public static function defaultVendorCommands(): array
+    {
+        return [
+            'auth:clear-resets',
+            'config:cache',
+            'horizon:snapshot',
+            'horizon:status',
+            'horizon:supervisor',
+            'inertia:start-ssr',
+            'invoke-serialized-closure',
+            'model:prune',
+            'nightwatch:agent',
+            'nightwatch:status',
+            'queue:monitor',
+            'reverb:start',
+            'schedule:list',
+        ];
     }
 
     /**

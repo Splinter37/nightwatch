@@ -12,7 +12,9 @@ use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Laravel\Nightwatch\Compatibility;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\Console\Input\StringInput;
+use Symfony\Component\Console\Output\NullOutput;
 use Tests\TestCase;
 
 use function array_shift;
@@ -275,15 +277,23 @@ class CommandSensorTest extends TestCase
         $ingest->assertLatestWrite('cache-event:0.execution_stage', 'action');
     }
 
-    public function test_it_ignores_schedule_finish_command(): void
+    #[DataProvider('vendorCommands')]
+    public function test_it_ignores_vendor_commands(string $command): void
     {
         $ingest = $this->fakeIngest();
 
-        $status = Artisan::handle($input = new StringInput('schedule:finish 123'));
+        $status = Artisan::handle($input = new StringInput($command), new NullOutput);
         Artisan::terminate($input, $status);
 
         $this->assertSame(0, $status);
         $ingest->assertWrittenTimes(0);
+    }
+
+    public static function vendorCommands(): iterable
+    {
+        yield ['help'];
+        yield ['inspire'];
+        yield ['schedule:finish 123'];
     }
 }
 
