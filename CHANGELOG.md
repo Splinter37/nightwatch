@@ -1,6 +1,15 @@
 # Release Notes
 
-## [Unreleased](https://github.com/laravel/nightwatch/compare/v1.20.0...1.x)
+## [Unreleased](https://github.com/laravel/nightwatch/compare/v1.21.0...1.x)
+
+## [v1.21.0](https://github.com/laravel/nightwatch/compare/v1.20.0...v1.21.0) - 2025-12-16
+
+### What's Changed
+
+* Add AGENTS.md file by [@jessarcher](https://github.com/jessarcher) in https://github.com/laravel/nightwatch/pull/303
+* Capture scheduled task sub-minute frequency by [@jessarcher](https://github.com/jessarcher) in https://github.com/laravel/nightwatch/pull/302
+
+**Full Changelog**: https://github.com/laravel/nightwatch/compare/v1.20.0...v1.21.0
 
 ## [v1.20.0](https://github.com/laravel/nightwatch/compare/v1.19.0...v1.20.0) - 2025-12-16
 
