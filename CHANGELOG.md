@@ -1,6 +1,14 @@
 # Release Notes
 
-## [Unreleased](https://github.com/laravel/nightwatch/compare/v1.21.0...1.x)
+## [Unreleased](https://github.com/laravel/nightwatch/compare/v1.21.1...1.x)
+
+## [v1.21.1](https://github.com/laravel/nightwatch/compare/v1.21.0...v1.21.1) - 2025-12-18
+
+### What's Changed
+
+* Add facade alias by [@avosalmon](https://github.com/avosalmon) in https://github.com/laravel/nightwatch/pull/316
+
+**Full Changelog**: https://github.com/laravel/nightwatch/compare/v1.21.0...v1.21.1
 
 ## [v1.21.0](https://github.com/laravel/nightwatch/compare/v1.20.0...v1.21.0) - 2025-12-16
 
