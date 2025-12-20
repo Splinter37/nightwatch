@@ -37,6 +37,7 @@ abstract class TestCase extends BaseTestCase
      * @param-out  BrowserFake  $ingestBrowser
      * @param-out  LoopFake  $loop
      * @param-out  TcpServerFake  $server
+     * @param-out  string  $listenOn
      */
     protected function runAgent(
         string $via,
@@ -49,14 +50,17 @@ abstract class TestCase extends BaseTestCase
         bool $silent = false,
         bool $quiet = false,
         ?bool $verbose = null,
+        ?string &$listenOn = null,
+        ?int $maxBufferLength = null,
     ): array {
         $output = '';
         $port = rand(9000, 9999);
         $payloadFile = __DIR__.'/test-payload';
+        $listenOn ??= "127.0.0.1:{$port}";
 
         try {
             $write = file_put_contents($payloadFile, serialize([
-                'listenOn' => "127.0.0.1:{$port}",
+                'listenOn' => $listenOn,
                 'viaPhar' => $via === 'phar',
                 'ingestDetailsBrowser' => $ingestDetailsBrowser,
                 'ingestBrowser' => $ingestBrowser,
@@ -65,6 +69,7 @@ abstract class TestCase extends BaseTestCase
                 'silent' => $silent,
                 'quiet' => $quiet,
                 'verbose' => $verbose,
+                'maxBufferLength' => $maxBufferLength,
             ]));
 
             if ($write === false) {
@@ -138,6 +143,7 @@ abstract class TestCase extends BaseTestCase
         $expected = str_replace('{info}', '\[INFO\]', $expected);
         $expected = str_replace('{error}', '\[ERROR\]', $expected);
         $expected = str_replace('{debug}', '\[DEBUG\]', $expected);
+        $expected = str_replace('{warning}', '\[WARNING\]', $expected);
 
         $expectedLines = explode(PHP_EOL, $expected);
         $actualLines = explode(PHP_EOL, $actual);

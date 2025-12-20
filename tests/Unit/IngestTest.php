@@ -13,14 +13,17 @@ use function array_fill;
 use function array_key_exists;
 use function array_shift;
 use function call_user_func_array;
+use function collect;
 use function fclose;
 use function fopen;
 use function implode;
 use function json_encode;
+use function phpversion;
 use function str_repeat;
 use function stream_wrapper_register;
 use function stream_wrapper_unregister;
 use function strlen;
+use function version_compare;
 
 class IngestTest extends TestCase
 {
@@ -83,12 +86,16 @@ class IngestTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage(<<<'MESSAGE'
         Failed configuring agent read timeout
-
-        Timed out: false
-        EOF: false
-        Blocked: true
-        URI: tcp://127.0.0.1:2407
-        Unread bytes: 0
+        ---
+        timed_out: false
+        blocked: true
+        eof: false
+        wrapper_type: user-space
+        stream_type: user-space
+        mode: r+
+        unread_bytes: 0
+        seekable: true
+        uri: tcp://127.0.0.1:2407
         MESSAGE);
 
         throw $exceptions[0];
@@ -152,13 +159,17 @@ class IngestTest extends TestCase
 
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage(<<<'MESSAGE'
-        Unable to write to the agent. Written [0] Expected [35]
-
-        Timed out: false
-        EOF: false
-        Blocked: true
-        URI: tcp://127.0.0.1:2407
-        Unread bytes: 0
+        Unable to write to stream
+        ---
+        timed_out: false
+        blocked: true
+        eof: false
+        wrapper_type: user-space
+        stream_type: user-space
+        mode: r+
+        unread_bytes: 0
+        seekable: true
+        uri: tcp://127.0.0.1:2407
         MESSAGE);
 
         throw $exceptions[0];
@@ -224,14 +235,18 @@ class IngestTest extends TestCase
 
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage(<<<'MESSAGE'
-        Unable to write to the agent. Written [6] Expected [35]
-
-        Timed out: false
-        EOF: false
-        Blocked: true
-        URI: tcp://127.0.0.1:2407
-        Unread bytes: 0
-        MESSAGE);
+            Unable to write to stream
+            ---
+            timed_out: false
+            blocked: true
+            eof: false
+            wrapper_type: user-space
+            stream_type: user-space
+            mode: r+
+            unread_bytes: 0
+            seekable: true
+            uri: tcp://127.0.0.1:2407
+            MESSAGE);
 
         throw $exceptions[0];
     }
@@ -315,13 +330,17 @@ class IngestTest extends TestCase
 
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage(<<<'MESSAGE'
-        Failed reading from the agent
-
-        Timed out: false
-        EOF: false
-        Blocked: true
-        URI: tcp://127.0.0.1:2407
-        Unread bytes: 0
+        Unable to read from stream
+        ---
+        timed_out: false
+        blocked: true
+        eof: false
+        wrapper_type: user-space
+        stream_type: user-space
+        mode: r+
+        unread_bytes: 0
+        seekable: true
+        uri: tcp://127.0.0.1:2407
         MESSAGE);
 
         throw $exceptions[0];
@@ -343,12 +362,6 @@ class IngestTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage(<<<'MESSAGE'
         Unexpected response from agent [XXXX]
-
-        Timed out: false
-        EOF: false
-        Blocked: true
-        URI: tcp://127.0.0.1:2407
-        Unread bytes: 19
         MESSAGE);
 
         throw $exceptions[0];
@@ -364,6 +377,7 @@ class IngestTest extends TestCase
 
     public function test_it_does_not_retrieve_meta_of_already_closed_stream(): void
     {
+        $this->markTestSkippedWhen(version_compare(phpversion(), '8.5.0', '>='), 'Closing a userland stream within a intercepted callback is no longer supported');
         $exceptions = [];
         Nightwatch::handleUnrecoverableExceptionsUsing(function ($e) use (&$exceptions): void {
             $exceptions[] = $e;
@@ -388,9 +402,9 @@ class IngestTest extends TestCase
 
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage(<<<'MESSAGE'
-        Failed reading from the agent
-
-        Stream already closed
+        Unable to read from stream
+        ---
+        closed: true
         MESSAGE);
 
         throw $exceptions[0];
@@ -420,12 +434,6 @@ class IngestTest extends TestCase
         $this->assertInstanceOf(RuntimeException::class, $exceptions[0]);
         $this->assertSame(<<<'MESSAGE'
     Unexpected response from agent []
-
-    Timed out: false
-    EOF: true
-    Blocked: true
-    URI: tcp://127.0.0.1:2407
-    Unread bytes: 0
     MESSAGE, $exceptions[0]->getMessage());
         $this->assertSame(3, $reads);
         $this->assertSame([
@@ -466,12 +474,6 @@ class IngestTest extends TestCase
         $this->assertInstanceOf(RuntimeException::class, $exceptions[0]);
         $this->assertSame(<<<'MESSAGE'
     Unexpected response from agent []
-
-    Timed out: false
-    EOF: false
-    Blocked: true
-    URI: tcp://127.0.0.1:2407
-    Unread bytes: 0
     MESSAGE, $exceptions[0]->getMessage());
         $this->assertSame([
             'stream_open',
@@ -490,7 +492,6 @@ class IngestTest extends TestCase
             'stream_eof',
             'stream_eof',
             'stream_read',
-            'stream_eof',
             'stream_eof',
             'stream_eof',
             'stream_flush',
@@ -545,6 +546,20 @@ class IngestTest extends TestCase
 
         $this->assertCount(4, $writes);
         $this->assertSame(str_repeat('10012:'.Payload::PAYLOAD_VERSION.':'.$tokenHash.':['.implode(',', array_fill(0, 500, json_encode(FakeRecord::make()))).']', 2), implode('', $writes));
+    }
+
+    public function test_it_closes_the_stream_if_an_error_occurs_while_writing(): void
+    {
+        StreamWrapper::intercept('stream_write', fn () => throw new RuntimeException('Whoops!'));
+        $exceptions = collect();
+        Nightwatch::handleUnrecoverableExceptionsUsing($exceptions->push(...));
+
+        $this->core->ingest->write(FakeRecord::make());
+        $this->core->finishExecution();
+
+        $this->assertSame('stream_close', StreamWrapper::$events->pluck('type')->last());
+        $this->assertCount(1, $exceptions);
+        $this->assertSame('Whoops!', $exceptions[0]->getMessage());
     }
 }
 

@@ -20,6 +20,7 @@ use Illuminate\Queue\Events\JobQueueing;
 use Illuminate\Queue\Events\JobReleasedAfterException;
 use Laravel\Nightwatch\Records\CacheEvent as CacheEventRecord;
 use Laravel\Nightwatch\Records\Command;
+use Laravel\Nightwatch\Records\Exception;
 use Laravel\Nightwatch\Records\Mail;
 use Laravel\Nightwatch\Records\Notification;
 use Laravel\Nightwatch\Records\OutgoingRequest;
@@ -63,7 +64,7 @@ final class SensorManager
     public $cacheEventSensor;
 
     /**
-     * @var (callable(Throwable, null|bool): array<mixed>)|null
+     * @var (callable(Throwable, null|bool): array{0: Exception, 1: callable(): array<mixed>})|null
      */
     public $exceptionSensor;
 
@@ -127,11 +128,18 @@ final class SensorManager
      */
     public $commandSensor;
 
+    /**
+     * @param  list<string>  $redactPayloadFields
+     * @param  list<string>  $redactHeaders
+     */
     public function __construct(
         private RequestState|CommandState $executionState,
         private Clock $clock,
         public Location $location,
         private bool $captureExceptionSourceCode,
+        private bool $captureRequestPayload,
+        private array $redactPayloadFields,
+        private array $redactHeaders,
         private Repository $config,
     ) {
         //
@@ -154,6 +162,9 @@ final class SensorManager
     {
         $sensor = $this->requestSensor ??= new RequestSensor(
             requestState: $this->executionState, // @phpstan-ignore argument.type
+            capturePayload: $this->captureRequestPayload,
+            redactPayloadFields: $this->redactPayloadFields,
+            redactHeaders: $this->redactHeaders,
         );
 
         return $sensor($request, $response);
@@ -238,7 +249,7 @@ final class SensorManager
     }
 
     /**
-     * @return array<mixed>
+     * @return array{0: Exception, 1: callable(): array<mixed>}
      */
     public function exception(Throwable $e, ?bool $handled): array
     {
@@ -304,7 +315,7 @@ final class SensorManager
         $sensor = $this->queuedJobSensor ??= new QueuedJobSensor(
             executionState: $this->executionState,
             clock: $this->clock,
-            connectionConfig: $this->config->all()['queue']['connections'] ?? [],
+            connectionConfig: $this->config->get('queue.connections') ?? [], // @phpstan-ignore argument.type
         );
 
         return $sensor($event);
@@ -318,7 +329,7 @@ final class SensorManager
         $sensor = $this->jobAttemptSensor ??= new JobAttemptSensor(
             commandState: $this->executionState, // @phpstan-ignore argument.type
             clock: $this->clock,
-            connectionConfig: $this->config->all()['queue']['connections'] ?? [],
+            connectionConfig: $this->config->get('queue.connections') ?? [], // @phpstan-ignore argument.type
         );
 
         return $sensor($event);
