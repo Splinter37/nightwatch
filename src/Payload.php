@@ -5,6 +5,7 @@ namespace Laravel\Nightwatch;
 use RuntimeException;
 
 use function in_array;
+use function json_encode;
 use function strlen;
 
 /**
@@ -12,12 +13,7 @@ use function strlen;
  */
 final class Payload
 {
-    /**
-     * This value is automatically updated in CI.
-     *
-     * Do not modify or re-locate this constant.
-     */
-    public const SIGNATURE = '76D218F';
+    public const PAYLOAD_VERSION = 'v1';
 
     private bool $pulled = false;
 
@@ -27,18 +23,26 @@ final class Payload
     public function __construct(
         private string $type,
         private string $payload,
+        private string $tokenHash,
     ) {
         //
     }
 
-    public static function text(string $payload): self
+    public static function text(string $payload, string $tokenHash): self
     {
-        return new self('TEXT', $payload);
+        return new self('TEXT', $payload, $tokenHash);
     }
 
-    public static function json(string $payload): self
+    /**
+     * @param  list<array<string, mixed>>  $payload
+     */
+    public static function json(array $payload, string $tokenHash): self
     {
-        return new self('JSON', $payload);
+        return new self(
+            'JSON',
+            json_encode($payload, flags: JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_UNICODE),
+            $tokenHash
+        );
     }
 
     public function pull(): string
@@ -52,9 +56,9 @@ final class Payload
 
         $this->payload = '';
 
-        $length = strlen(self::SIGNATURE) + 1 + strlen($payload);
+        $length = strlen(self::PAYLOAD_VERSION) + 1 + strlen($this->tokenHash) + 1 + strlen($payload);
 
-        return $length.':'.self::SIGNATURE.':'.$payload;
+        return $length.':'.self::PAYLOAD_VERSION.':'.$this->tokenHash.':'.$payload;
     }
 
     public function rawPayload(): string

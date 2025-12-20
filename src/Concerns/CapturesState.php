@@ -7,6 +7,7 @@ use Illuminate\Console\Application as Artisan;
 use Illuminate\Console\Events\ScheduledTaskFailed;
 use Illuminate\Console\Events\ScheduledTaskFinished;
 use Illuminate\Console\Events\ScheduledTaskSkipped;
+use Illuminate\Console\Scheduling\Event;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Queue\Job;
 use Illuminate\Database\Events\QueryExecuted;
@@ -34,6 +35,7 @@ use Monolog\LogRecord;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
 use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\ErrorHandler\Error\FatalError;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
 use WeakMap;
@@ -41,10 +43,18 @@ use WeakMap;
 use function array_shift;
 use function array_unshift;
 use function debug_backtrace;
+use function env;
+use function in_array;
 use function memory_reset_peak_usage;
+use function preg_match;
+use function preg_split;
 use function random_int;
+use function str_replace;
+use function trim;
 
 /**
+ * @internal
+ *
  * @mixin Core
  */
 trait CapturesState
@@ -53,7 +63,12 @@ trait CapturesState
 
     private bool $paused = false;
 
-    private bool $waitingForJob = false;
+    private bool $captureDefaultVendorCommands = false;
+
+    /**
+     * @var WeakMap<Event, float>
+     */
+    private WeakMap $scheduledTasksSampleRates;
 
     /**
      * @var WeakMap<Route, bool>
@@ -73,9 +88,9 @@ trait CapturesState
 
         $this->sampling = $sample;
 
-        $this->ingest->shouldDigest($sample);
+        $this->ingest->shouldDigestWhenBufferIsFull($sample);
 
-        Compatibility::addHiddenContext('nightwatch_should_sample', $sample);
+        Compatibility::addSamplingToContext($sample);
     }
 
     /**
@@ -97,7 +112,7 @@ trait CapturesState
     /**
      * @internal
      */
-    public function configureGlobalRequestSampling(): void
+    public function configureRequestSampling(): void
     {
         $this->sample($this->config['sampling']['requests']);
     }
@@ -105,9 +120,75 @@ trait CapturesState
     /**
      * @internal
      */
-    public function configureGlobalCommandSampling(): void
+    public function configureCommandSampling(string $command): void
     {
-        $this->sample($this->config['sampling']['commands']);
+        if (! $this->captureDefaultVendorCommands && in_array($command, $this->defaultVendorCommands(), true)) {
+            $this->dontSample();
+
+            return;
+        }
+
+        $this->sample(match (Compatibility::getSamplingFromContext(null)) {
+            true => 1.0,
+            false => 0.0,
+            null => $this->config['sampling']['commands'],
+        });
+    }
+
+    /**
+     * @internal
+     */
+    public function configureScheduledTaskSampling(Event $event): void
+    {
+        if (! $this->captureDefaultVendorCommands) {
+            $command = str_replace(
+                [Artisan::phpBinary(), Artisan::artisanBinary()],
+                '',
+                $event->command ?? ''
+            );
+
+            $command = preg_split('/\s+/', trim($command), 2)[0] ?? '';
+
+            if (in_array($command, $this->defaultVendorCommands(), true)) {
+                $this->dontSample();
+
+                return;
+            }
+        }
+
+        $this->sample(rate: $this->scheduledTasksSampleRates[$event] ?? $this->config['sampling']['scheduled_tasks']);
+    }
+
+    /**
+     * @api
+     */
+    public function captureDefaultVendorCommands(bool $capture = true): void
+    {
+        $this->captureDefaultVendorCommands = $capture;
+    }
+
+    /**
+     * @api
+     *
+     * @return list<string>
+     */
+    public static function defaultVendorCommands(): array
+    {
+        return [
+            'auth:clear-resets',
+            'config:cache',
+            'horizon:snapshot',
+            'horizon:status',
+            'horizon:supervisor',
+            'inertia:start-ssr',
+            'invoke-serialized-closure',
+            'model:prune',
+            'nightwatch:agent',
+            'nightwatch:status',
+            'queue:monitor',
+            'reverb:start',
+            'schedule:list',
+        ];
     }
 
     /**
@@ -116,15 +197,16 @@ trait CapturesState
     public function ignore(callable $callback): mixed
     {
         $cachedPaused = $this->paused;
+        $cachedSamplingInContext = Compatibility::getSamplingFromContext();
 
         try {
             $this->paused = true;
-            Compatibility::addHiddenContext('nightwatch_should_sample', false);
+            Compatibility::addSamplingToContext(false);
 
             return $callback();
         } finally {
             $this->paused = $cachedPaused;
-            Compatibility::addHiddenContext('nightwatch_should_sample', ! $this->paused);
+            Compatibility::addSamplingToContext($cachedSamplingInContext);
         }
     }
 
@@ -135,7 +217,7 @@ trait CapturesState
     {
         $this->paused = false;
 
-        Compatibility::addHiddenContext('nightwatch_should_sample', true);
+        Compatibility::addSamplingToContext(true);
     }
 
     /**
@@ -145,7 +227,7 @@ trait CapturesState
     {
         $this->paused = true;
 
-        Compatibility::addHiddenContext('nightwatch_should_sample', false);
+        Compatibility::addSamplingToContext(false);
     }
 
     /**
@@ -170,7 +252,19 @@ trait CapturesState
         }
 
         try {
-            $this->ingest->write($this->sensor->exception($e, $handled));
+            if ($e instanceof FatalError) {
+                if ($this->sampling) {
+                    $this->ingest->writeNow($this->sensor->fatalError($e));
+                }
+            } else {
+                [$record, $resolver] = $this->sensor->exception($e, $handled);
+
+                foreach ($this->redactExceptionCallbacks as $callback) {
+                    $this->ignore(static fn () => ($callback)($record));
+                }
+
+                $this->ingest->write($resolver());
+            }
         } catch (Throwable $e) {
             Nightwatch::unrecoverableExceptionOccurred($e);
         }
@@ -191,12 +285,14 @@ trait CapturesState
     {
         [$record, $resolver] = $this->sensor->outgoingRequest($startMicrotime, $endMicrotime, $request, $response);
 
-        if ($this->rejectOutgoingRequestCallback && $this->ignore(fn () => ($this->rejectOutgoingRequestCallback)($record))) {
-            return;
+        foreach ($this->rejectOutgoingRequestCallbacks as $callback) {
+            if ($this->ignore(static fn () => ($callback)($record))) {
+                return;
+            }
         }
 
-        if ($this->redactOutgoingRequestCallback) {
-            $this->ignore(fn () => ($this->redactOutgoingRequestCallback)($record));
+        foreach ($this->redactOutgoingRequestCallbacks as $callback) {
+            $this->ignore(static fn () => ($callback)($record));
         }
 
         $this->ingest->write($resolver());
@@ -216,12 +312,14 @@ trait CapturesState
 
         [$record, $resolver] = $this->sensor->query($event, $trace);
 
-        if ($this->rejectQueryCallback && $this->ignore(fn () => ($this->rejectQueryCallback)($record))) {
-            return;
+        foreach ($this->rejectQueryCallbacks as $callback) {
+            if ($this->ignore(static fn () => ($callback)($record))) {
+                return;
+            }
         }
 
-        if ($this->redactQueryCallback) {
-            $this->ignore(fn () => ($this->redactQueryCallback)($record));
+        foreach ($this->redactQueryCallbacks as $callback) {
+            $this->ignore(static fn () => ($callback)($record));
         }
 
         $this->ingest->write($resolver());
@@ -244,8 +342,10 @@ trait CapturesState
 
         [$record, $resolver] = $queuedJob;
 
-        if ($this->rejectQueuedJobCallback && $this->ignore(fn () => ($this->rejectQueuedJobCallback)($record))) {
-            return;
+        foreach ($this->rejectQueuedJobCallbacks as $callback) {
+            if ($this->ignore(static fn () => ($callback)($record))) {
+                return;
+            }
         }
 
         $this->ingest->write($resolver());
@@ -268,8 +368,10 @@ trait CapturesState
 
         [$record, $resolver] = $notification;
 
-        if ($this->rejectNotificationCallback && $this->ignore(fn () => ($this->rejectNotificationCallback)($record))) {
-            return;
+        foreach ($this->rejectNotificationCallbacks as $callback) {
+            if ($this->ignore(static fn () => ($callback)($record))) {
+                return;
+            }
         }
 
         $this->ingest->write($resolver());
@@ -292,12 +394,14 @@ trait CapturesState
 
         [$record, $resolver] = $mail;
 
-        if ($this->rejectMailCallback && $this->ignore(fn () => ($this->rejectMailCallback)($record))) {
-            return;
+        foreach ($this->rejectMailCallbacks as $callback) {
+            if ($this->ignore(static fn () => ($callback)($record))) {
+                return;
+            }
         }
 
-        if ($this->redactMailCallback) {
-            $this->ignore(fn () => ($this->redactMailCallback)($record));
+        foreach ($this->redactMailCallbacks as $callback) {
+            $this->ignore(static fn () => ($callback)($record));
         }
 
         $this->ingest->write($resolver());
@@ -320,12 +424,30 @@ trait CapturesState
 
         [$record, $resolver] = $cacheEvent;
 
-        if ($this->rejectCacheEventCallback && $this->ignore(fn () => ($this->rejectCacheEventCallback)($record))) {
-            return;
+        $rejectKeys = $this->captureDefaultVendorCacheKeys
+            ? $this->rejectCacheKeys
+            : [...$this->defaultVendorCacheKeys(), ...$this->rejectCacheKeys];
+
+        foreach ($rejectKeys as $reject) {
+            $match = @preg_match($reject, $record->key);
+
+            if ($match === 1) {
+                return;
+            }
+
+            if ($match === false && $record->key === $reject) {
+                return;
+            }
         }
 
-        if ($this->redactCacheEventCallback) {
-            $this->ignore(fn () => ($this->redactCacheEventCallback)($record));
+        foreach ($this->rejectCacheEventCallbacks as $callback) {
+            if ($this->ignore(static fn () => ($callback)($record))) {
+                return;
+            }
+        }
+
+        foreach ($this->redactCacheEventCallbacks as $callback) {
+            $this->ignore(static fn () => ($callback)($record));
         }
 
         $this->ingest->write($resolver());
@@ -395,8 +517,8 @@ trait CapturesState
 
         [$record, $resolver] = $this->sensor->request($request, $response);
 
-        if ($this->redactRequestCallback) {
-            $this->ignore(fn () => ($this->redactRequestCallback)($record));
+        foreach ($this->redactRequestCallbacks as $callback) {
+            $this->ignore(static fn () => ($callback)($record));
         }
 
         $this->ingest->write($resolver());
@@ -482,9 +604,9 @@ trait CapturesState
     /**
      * @internal
      */
-    public function waitForJob(): void
+    public function waitForExecution(): void
     {
-        $this->waitingForJob = true;
+        $this->dontSample();
     }
 
     /**
@@ -493,7 +615,7 @@ trait CapturesState
     public function configureForJobs(): void
     {
         $this->executionState->source = 'job';
-        $this->waitingForJob = true;
+        $this->waitForExecution();
     }
 
     /**
@@ -511,14 +633,26 @@ trait CapturesState
      */
     public function prepareForJob(Job $job): void
     {
+        /** @var Core<CommandState> $this */
+        if ($this->isVapor()) {
+            $this->prepareForNextJob();
+        }
+
         $this->sample(
-            Compatibility::getHiddenContext('nightwatch_should_sample', true) ? 1.0 : 0.0
+            Compatibility::getSamplingFromContext() ? 1.0 : 0.0
         );
 
-        $this->waitingForJob = false;
         $this->executionState->timestamp = $this->clock->microtime();
-        $this->executionState->setId((string) Str::uuid());
+        $this->executionState->setId($this->uuid->make());
         $this->executionState->executionPreview = Str::tinyText($job->resolveName());
+
+        // Beanstalkd throws an exception when attempting to retrieve the job
+        // after it has been processed. Previously, we were retrieving the attempts
+        // when listening for the `JobProcessed|JobReleasedAfterException|JobFailed`
+        // events, however the job has already been removed from beanstalkd
+        // when these events fire. Instead, we will capture it much earlier in
+        // the lifecycle to ensure we can always retrieve the value.
+        $this->executionState->attempts = $job->attempts();
     }
 
     /**
@@ -567,8 +701,8 @@ trait CapturesState
 
         [$record, $resolver] = $this->sensor->command($input, $status);
 
-        if ($this->redactCommandCallback) {
-            $this->ignore(fn () => ($this->redactCommandCallback)($record));
+        foreach ($this->redactCommandCallbacks as $callback) {
+            $this->ignore(static fn () => ($callback)($record));
         }
 
         $this->ingest->write($resolver());
@@ -580,12 +714,13 @@ trait CapturesState
     public function configureForScheduledTasks(): void
     {
         $this->executionState->source = 'schedule';
+        $this->waitForExecution();
     }
 
     /**
      * @internal
      */
-    public function prepareForNextScheduledTask(): void
+    public function prepareForNextScheduledTask(Event $event): void
     {
         /*
          * Reset state for the current scheduled task execution.
@@ -596,11 +731,12 @@ trait CapturesState
         $this->resume();
         memory_reset_peak_usage();
 
-        $trace = (string) Str::uuid();
-        Compatibility::addHiddenContext('nightwatch_trace_id', $trace);
+        $trace = $this->uuid->make();
+        Compatibility::addTraceIdToContext($trace);
         $this->executionState->trace = $trace;
         $this->executionState->setId($trace);
         $this->executionState->timestamp = $this->clock->microtime();
+        $this->configureScheduledTaskSampling($event);
     }
 
     /**
@@ -642,10 +778,10 @@ trait CapturesState
         $this->executionState->timestamp = $timestamp;
         $this->executionState->currentExecutionStageStartedAtMicrotime = $timestamp;
 
-        $trace = (string) Str::uuid();
+        $trace = $this->uuid->make();
         $this->executionState->trace = $trace;
         $this->executionState->setId($trace);
-        Compatibility::addHiddenContext('nightwatch_trace_id', $trace);
+        Compatibility::addTraceIdToContext($trace);
     }
 
     /**
@@ -659,9 +795,22 @@ trait CapturesState
     /**
      * @internal
      */
+    public function sampleScheduledTask(Event $event, float $rate): void
+    {
+        $this->scheduledTasksSampleRates[$event] = $rate;
+    }
+
+    /**
+     * @internal
+     */
     public function flush(): void
     {
         $this->executionState->flush();
         $this->ingest->flush();
+    }
+
+    private function isVapor(): bool
+    {
+        return env('VAPOR_SSM_PATH') !== null;
     }
 }

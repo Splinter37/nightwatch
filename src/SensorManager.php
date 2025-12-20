@@ -20,6 +20,7 @@ use Illuminate\Queue\Events\JobQueueing;
 use Illuminate\Queue\Events\JobReleasedAfterException;
 use Laravel\Nightwatch\Records\CacheEvent as CacheEventRecord;
 use Laravel\Nightwatch\Records\Command;
+use Laravel\Nightwatch\Records\Exception;
 use Laravel\Nightwatch\Records\Mail;
 use Laravel\Nightwatch\Records\Notification;
 use Laravel\Nightwatch\Records\OutgoingRequest;
@@ -42,12 +43,15 @@ use Laravel\Nightwatch\Sensors\StageSensor;
 use Laravel\Nightwatch\Sensors\UserSensor;
 use Laravel\Nightwatch\State\CommandState;
 use Laravel\Nightwatch\State\RequestState;
+use Laravel\Nightwatch\Types\Str;
 use Monolog\LogRecord;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
+
+use function hash;
 
 /**
  * @internal
@@ -60,7 +64,7 @@ final class SensorManager
     public $cacheEventSensor;
 
     /**
-     * @var (callable(Throwable, null|bool): array<mixed>)|null
+     * @var (callable(Throwable, null|bool): array{0: Exception, 1: callable(): array<mixed>})|null
      */
     public $exceptionSensor;
 
@@ -124,10 +128,18 @@ final class SensorManager
      */
     public $commandSensor;
 
+    /**
+     * @param  list<string>  $redactPayloadFields
+     * @param  list<string>  $redactHeaders
+     */
     public function __construct(
         private RequestState|CommandState $executionState,
         private Clock $clock,
         public Location $location,
+        private bool $captureExceptionSourceCode,
+        private bool $captureRequestPayload,
+        private array $redactPayloadFields,
+        private array $redactHeaders,
         private Repository $config,
     ) {
         //
@@ -150,6 +162,9 @@ final class SensorManager
     {
         $sensor = $this->requestSensor ??= new RequestSensor(
             requestState: $this->executionState, // @phpstan-ignore argument.type
+            capturePayload: $this->captureRequestPayload,
+            redactPayloadFields: $this->redactPayloadFields,
+            redactHeaders: $this->redactHeaders,
         );
 
         return $sensor($request, $response);
@@ -234,7 +249,7 @@ final class SensorManager
     }
 
     /**
-     * @return array<mixed>
+     * @return array{0: Exception, 1: callable(): array<mixed>}
      */
     public function exception(Throwable $e, ?bool $handled): array
     {
@@ -242,9 +257,42 @@ final class SensorManager
             executionState: $this->executionState,
             clock: $this->clock,
             location: $this->location,
+            captureSourceCode: $this->captureExceptionSourceCode,
         );
 
         return $sensor($e, $handled);
+    }
+
+    /**
+     * @return array<mixed>
+     */
+    public function fatalError(Throwable $e): array
+    {
+        $file = $this->location->normalizeFile($e->getFile());
+
+        return [
+            'v' => 3,
+            't' => 'exception',
+            'timestamp' => $this->clock->microtime(),
+            'deploy' => $this->executionState->deploy,
+            'server' => $this->executionState->server,
+            '_group' => hash('xxh128', $e::class.','.$e->getCode().','.$file.','.$e->getLine()),
+            'trace_id' => $this->executionState->trace,
+            'execution_source' => $this->executionState->source,
+            'execution_id' => '',
+            'execution_preview' => $this->executionState->executionPreview,
+            'execution_stage' => $this->executionState->stage,
+            'user' => $this->executionState->user->resolvedUserId(),
+            'class' => $e::class,
+            'file' => Str::tinyText($file),
+            'line' => $e->getLine(),
+            'message' => Str::text($e->getMessage()),
+            'code' => (string) $e->getCode(),
+            'trace' => '',
+            'handled' => false,
+            'php_version' => $this->executionState->phpVersion,
+            'laravel_version' => $this->executionState->laravelVersion,
+        ];
     }
 
     /**
@@ -267,7 +315,7 @@ final class SensorManager
         $sensor = $this->queuedJobSensor ??= new QueuedJobSensor(
             executionState: $this->executionState,
             clock: $this->clock,
-            connectionConfig: $this->config->all()['queue']['connections'] ?? [],
+            connectionConfig: $this->config->get('queue.connections') ?? [], // @phpstan-ignore argument.type
         );
 
         return $sensor($event);
@@ -281,7 +329,7 @@ final class SensorManager
         $sensor = $this->jobAttemptSensor ??= new JobAttemptSensor(
             commandState: $this->executionState, // @phpstan-ignore argument.type
             clock: $this->clock,
-            connectionConfig: $this->config->all()['queue']['connections'] ?? [],
+            connectionConfig: $this->config->get('queue.connections') ?? [], // @phpstan-ignore argument.type
         );
 
         return $sensor($event);

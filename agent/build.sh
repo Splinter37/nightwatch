@@ -2,10 +2,10 @@
 
 set -e
 
-box compile
+docker build --platform=linux/amd64 -t agent-builder -f docker/Dockerfile.build .
 
-SIGNATURE=$(box info:signature build/agent.phar)
+docker run --rm -v $(pwd):/app --entrypoint composer agent-builder install --prefer-dist --no-dev --no-interaction --classmap-authoritative
+docker run --rm -v $(pwd):/app agent-builder
+SIGNATURE=$(docker run --rm -v $(pwd):/app agent-builder info:signature build/agent.phar)
 
-echo $SIGNATURE > build/signature.txt
-
-sed -i "s/public const SIGNATURE = '.*';/public const SIGNATURE = '${SIGNATURE:0:7}';/" ../src/Payload.php;
+echo $SIGNATURE >build/signature.txt

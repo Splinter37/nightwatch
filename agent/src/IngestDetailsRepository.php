@@ -4,6 +4,7 @@ namespace Laravel\NightwatchAgent;
 
 use Closure;
 use Laravel\NightwatchAgent\Contracts\Browser;
+use Laravel\NightwatchAgent\Contracts\Clock;
 use Psr\Http\Message\ResponseInterface;
 use React\EventLoop\LoopInterface;
 use React\EventLoop\TimerInterface;
@@ -44,15 +45,14 @@ class IngestDetailsRepository
     private ?array $quickRetryStrategyDurationsCache = null;
 
     /**
-     * @param  LoopInterface  $loop
-     * @param  Browser  $browser
      * @param  (Closure(IngestDetails $ingestDetails, float $duration): mixed)  $onAuthenticationSuccess
      * @param  (Closure(string $message, float $duration): mixed)  $onAuthenticationError
      * @param  (Closure(): mixed)  $onUnderQuota
      */
     public function __construct(
-        private $loop,
-        private $browser,
+        private LoopInterface $loop,
+        private Browser $browser,
+        private Clock $clock,
         private Closure $onAuthenticationSuccess,
         private Closure $onAuthenticationError,
         private Closure $onUnderQuota,
@@ -113,7 +113,6 @@ class IngestDetailsRepository
             })->catch(function (Throwable $e) use ($start, &$duration): null {
                 $this->consecutiveFailures++;
 
-                // TODO if the current token has expired we should `null` it.
                 $duration ??= microtime(true) - $start;
 
                 [$message, $stop, $refreshIn] = $this->parseException($e);
@@ -162,6 +161,7 @@ class IngestDetailsRepository
             expiresIn: $data['expires_in'],
             ingestUrl: $data['ingest_url'],
             refreshIn: $data['refresh_in'],
+            expiresAt: $data['expires_in'] + $this->clock->time(),
         );
     }
 

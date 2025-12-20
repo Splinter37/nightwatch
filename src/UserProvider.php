@@ -22,17 +22,28 @@ final class UserProvider
     public $userDetailsResolverResolver;
 
     /**
+     * @var array{id: mixed, name?: mixed, username?: mixed}
+     */
+    private ?array $resolvedDetails;
+
+    /**
+     * @var (callable(callable(AuthManager): mixed): mixed)
+     */
+    private $withAuth;
+
+    /**
      * @var (callable(): (callable(Throwable, bool): void))
      */
-    public $reportResolver;
+    private $reportResolver;
 
     private bool $alreadyReportedResolvingUserIdException = false;
 
     public function __construct(
-        private AuthManager $auth,
+        callable $withAuth,
         callable $userDetailsResolverResolver,
         callable $reportResolver,
     ) {
+        $this->withAuth = $withAuth;
         $this->userDetailsResolverResolver = $userDetailsResolverResolver;
         $this->reportResolver = $reportResolver;
     }
@@ -42,19 +53,21 @@ final class UserProvider
      */
     public function id(): LazyValue|string
     {
-        if (! $this->auth->hasResolvedGuards()) {
+        return $this->withAuth(function ($auth) {
+            if (! $auth->hasResolvedGuards()) {
+                return $this->lazyUserId();
+            }
+
+            if ($auth->hasUser()) {
+                return $this->userId($auth->user()); // @phpstan-ignore argument.type
+            }
+
+            if ($this->rememberedUser) {
+                return $this->userId($this->rememberedUser);
+            }
+
             return $this->lazyUserId();
-        }
-
-        if ($this->auth->hasUser()) {
-            return $this->currentUserId();
-        }
-
-        if ($this->rememberedUser) {
-            return $this->rememberedUserId();
-        }
-
-        return '';
+        });
     }
 
     /**
@@ -63,37 +76,33 @@ final class UserProvider
     private function lazyUserId(): LazyValue
     {
         return new LazyValue(function () {
-            if (! $this->auth->hasResolvedGuards()) {
-                return '';
-            }
-
-            if ($this->auth->hasUser()) {
-                return $this->currentUserId();
-            }
-
-            if ($this->rememberedUser) {
-                return $this->rememberedUserId();
-            }
-
-            return '';
+            return $this->resolvedUserId();
         });
     }
 
-    private function currentUserId(): string
+    public function resolvedUserId(): string
     {
-        try {
-            return Str::tinyText((string) $this->auth->id());
-        } catch (Throwable $e) {
-            $this->reportResolvingUserIdException($e);
+        return $this->withAuth(function ($auth) {
+            if (! $auth->hasResolvedGuards()) {
+                return Compatibility::getUserIdFromContext();
+            }
 
-            return '';
-        }
+            if ($auth->hasUser()) {
+                return $this->userId($auth->user()); // @phpstan-ignore argument.type
+            }
+
+            if ($this->rememberedUser) {
+                return $this->userId($this->rememberedUser);
+            }
+
+            return Compatibility::getUserIdFromContext();
+        });
     }
 
-    private function rememberedUserId(): string
+    private function userId(Authenticatable $user): string
     {
         try {
-            return Str::tinyText((string) $this->rememberedUser?->getAuthIdentifier());  // @phpstan-ignore cast.string
+            return Str::tinyText((string) ($this->resolvedDetails($user)['id'] ?? '')); // @phpstan-ignore cast.string
         } catch (Throwable $e) {
             $this->reportResolvingUserIdException($e);
 
@@ -106,12 +115,24 @@ final class UserProvider
      */
     public function details(): ?array
     {
-        $user = $this->auth->hasResolvedGuards()
-            ? $this->auth->user() ?? $this->rememberedUser
-            : $this->rememberedUser;
+        $user = $this->withAuth(fn ($auth) => $auth->hasResolvedGuards()
+            ? $auth->user() ?? $this->rememberedUser
+            : $this->rememberedUser);
 
+        return $this->resolvedDetails($user);
+    }
+
+    /**
+     * @return array{ id: mixed, name?: mixed, username?: mixed }|null
+     */
+    private function resolvedDetails(?Authenticatable $user): ?array
+    {
         if ($user === null) {
             return null;
+        }
+
+        if (isset($this->resolvedDetails)) {
+            return $this->resolvedDetails;
         }
 
         try {
@@ -125,14 +146,14 @@ final class UserProvider
         $resolver = call_user_func($this->userDetailsResolverResolver);
 
         if ($resolver === null) {
-            return [
+            return $this->resolvedDetails = [
                 'id' => $id,
                 'name' => $user->name ?? '',
                 'username' => $user->email ?? '',
             ];
         }
 
-        return [
+        return $this->resolvedDetails = [
             'id' => $id,
             ...$resolver($user),
         ];
@@ -146,6 +167,7 @@ final class UserProvider
     public function flush(): void
     {
         $this->rememberedUser = null;
+        $this->resolvedDetails = null;
         $this->alreadyReportedResolvingUserIdException = false;
     }
 
@@ -160,5 +182,16 @@ final class UserProvider
         $report = call_user_func($this->reportResolver);
 
         $report($e, true);
+    }
+
+    /**
+     * @template TValue
+     *
+     * @param  callable(AuthManager): TValue  $callback
+     * @return TValue
+     */
+    private function withAuth(callable $callback): mixed
+    {
+        return ($this->withAuth)($callback);
     }
 }

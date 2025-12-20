@@ -3,6 +3,7 @@
 namespace Tests;
 
 use Closure;
+use Deprecated;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
@@ -35,9 +36,20 @@ class FakeIngest implements IngestContract
         $this->ingest->write($record);
     }
 
-    public function shouldDigest(bool $bool): void
+    public function writeNow(array $record): void
     {
-        $this->ingest->shouldDigest($bool);
+        $this->ingest->writeNow($record);
+    }
+
+    #[Deprecated('Use shouldDigestWhenBufferIsFull instead')]
+    public function shouldDigest(bool $bool = true): void
+    {
+        $this->shouldDigestWhenBufferIsFull($bool);
+    }
+
+    public function shouldDigestWhenBufferIsFull(bool $bool = true): void
+    {
+        $this->ingest->shouldDigestWhenBufferIsFull($bool);
     }
 
     public function digest(): void
@@ -78,27 +90,30 @@ class FakeIngest implements IngestContract
             return $this;
         }
 
+        $prefix = '';
+
         if (str_contains($key, ':')) {
             $type = Str::before($key, ':');
             $key = Str::after($key, ':');
+            $prefix = $type.':';
 
             $write = collect($write)->where('t', $type)->values()->all();
         }
 
         if ($key === '*') {
             if ($expected instanceof Closure) {
-                Assert::assertTrue($expected($write), "The expected value was not found at [{$key}].");
+                Assert::assertTrue($expected($write), "The expected value was not found at [{$prefix}{$key}].");
             } else {
-                Assert::assertSame(value($expected, $write), $write, "The expected value was not found at [{$key}].");
+                Assert::assertSame(value($expected, $write), $write, "The expected value was not found at [{$prefix}{$key}].");
             }
         } else {
-            Assert::assertTrue(Arr::has($write, $key), "The key [{$key}] does not exist in the latest write.");
+            Assert::assertTrue(Arr::has($write, $key), "The key [{$prefix}{$key}] does not exist in the latest write.");
             $actual = Arr::get($write, $key);
 
             if ($expected instanceof Closure) {
-                Assert::assertTrue($expected($actual), "The expected value was not found at [{$key}].");
+                Assert::assertTrue($expected($actual), "The expected value was not found at [{$prefix}{$key}].");
             } else {
-                Assert::assertSame(value($expected, $actual), $actual, "The expected value was not found at [{$key}].");
+                Assert::assertSame(value($expected, $actual), $actual, "The expected value was not found at [{$prefix}{$key}].");
             }
         }
 
@@ -125,7 +140,7 @@ class FakeIngest implements IngestContract
     public function writes(): Collection
     {
         return $this->streams->map(function ($stream) {
-            return explode(':', $stream->value, 3)[2];
+            return explode(':', $stream->value, 4)[3];
         });
     }
 
