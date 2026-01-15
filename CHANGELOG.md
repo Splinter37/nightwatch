@@ -1,6 +1,16 @@
 # Release Notes
 
-## [Unreleased](https://github.com/laravel/nightwatch/compare/v1.21.1...1.x)
+## [Unreleased](https://github.com/laravel/nightwatch/compare/v1.22.0...1.x)
+
+## [v1.22.0](https://github.com/laravel/nightwatch/compare/v1.21.1...v1.22.0) - 2026-01-15
+
+### What's Changed
+
+* Update changelog with scheduled task mention by [@jradtilbrook](https://github.com/jradtilbrook) in https://github.com/laravel/nightwatch/pull/317
+* Make `FakeTcpStream` compatible with Monolog 3.10.0 by [@avosalmon](https://github.com/avosalmon) in https://github.com/laravel/nightwatch/pull/319
+* Capture query connection type (read or write) by [@avosalmon](https://github.com/avosalmon) in https://github.com/laravel/nightwatch/pull/318
+
+**Full Changelog**: https://github.com/laravel/nightwatch/compare/v1.21.1...v1.22.0
 
 ## [v1.21.1](https://github.com/laravel/nightwatch/compare/v1.21.0...v1.21.1) - 2025-12-18
 
